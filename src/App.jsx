@@ -1032,7 +1032,13 @@ export default function App() {
                   {/* Alertas */}
                   {alertas.length > 0 && (
                     <div style={{ ...S.card, overflow: 'hidden', marginBottom: 10 }}>
-                      <div style={{ padding: '12px 16px 8px', fontSize: 13, fontWeight: 700, color: '#8e8e93' }}>ALERTAS DE ENTRENAMIENTO</div>
+                      <div style={{ padding: '12px 16px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: '#8e8e93' }}>ALERTAS DE ENTRENAMIENTO</span>
+                        <button onClick={() => alertas.forEach(a => aplicarCorreccionAlerta(a))}
+                          style={{ padding: '5px 12px', borderRadius: 20, border: '1.5px solid #6366f1', background: '#eef2ff', color: '#6366f1', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                          ✅ Corregir todo
+                        </button>
+                      </div>
                       {alertas.map((a, i) => {
                         const color = a.prioridad === 'alta' ? '#ef4444' : a.prioridad === 'media' ? '#f97316' : '#6366f1'
                         const bg = a.prioridad === 'alta' ? '#fef2f2' : a.prioridad === 'media' ? '#fff7ed' : '#eef2ff'
