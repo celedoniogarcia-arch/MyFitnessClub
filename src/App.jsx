@@ -271,6 +271,7 @@ export default function App() {
   const [mostrarCiclos, setMostrarCiclos] = useState(false)
   const [actividadModal, setActividadModal] = useState(false)
   const [actForm, setActForm] = useState({ tipo: 'correr', minutos: '', km: '' })
+  const [revisionBanner, setRevisionBanner] = useState(null)
   const saveTimer = useRef(null)
   const dietaTimer = useRef(null)
 
@@ -289,6 +290,95 @@ export default function App() {
       setUdLoading(false)
     })
   }, [userId])
+
+  // ── Revisión semanal automática ───────────────────────────────────────────
+  useEffect(() => {
+    if (!userId || !ud || Object.keys(ud).length === 0) return
+    const semanaActual = getWeekKey()
+    if (ud.ultimaRevisionSemana === semanaActual) return // ya revisado esta semana
+
+    const user_ = users.find(u => u.id === userId)
+    if (!user_) return
+    const niv = user_.nivel || 'intermedio'
+    const obj = user_.objetivo || 'recomposicion'
+    const ciclo = user_.cicloActual || 'hiper'
+    const dias_ = getDiasCiclo(ciclo, obj, niv)
+    const MEV = { principiante: 6, intermedio: 10, avanzado: 12 }[niv] || 10
+    const MRV = { principiante: 16, intermedio: 20, avanzado: 22 }[niv] || 20
+
+    // Calcular volumen planificado por grupo (con seriesExtra actuales)
+    const baseGrupo_ = {}
+    dias_.forEach(d => d.ejercicios.forEach(ej => {
+      const g = normalizarMusculo(ej.musculo)
+      const extra = (ud.seriesExtra || {})[g] || 0
+      baseGrupo_[g] = (baseGrupo_[g] || 0) + ej.series + extra
+    }))
+
+    const nuevoExtra = { ...(ud.seriesExtra || {}) }
+    let cambios = []
+
+    // Ajustar volumen: añadir si bajo MEV, quitar si sobre MRV
+    for (const [grupo, series] of Object.entries(baseGrupo_)) {
+      if (series < MEV) {
+        // Calcular base sin extra para saber cuánto añadir
+        const baseSinExtra = baseGrupo_[grupo] - (nuevoExtra[grupo] || 0)
+        const extraNecesario = Math.min(MEV - baseSinExtra, MRV - baseSinExtra)
+        if (extraNecesario > 0) {
+          nuevoExtra[grupo] = extraNecesario
+          cambios.push(`↑ ${grupo}: +${extraNecesario} series (bajo MEV)`)
+        }
+      } else if (series > MRV) {
+        // Reducir el extra hasta quedar en MRV
+        const baseSinExtra = baseGrupo_[grupo] - (nuevoExtra[grupo] || 0)
+        const extraMaximo = Math.max(0, MRV - baseSinExtra)
+        nuevoExtra[grupo] = extraMaximo
+        cambios.push(`↓ ${grupo}: reducido a MRV (recuperación)`)
+      }
+    }
+
+    // Rotar ejercicios estancados
+    const nuevasAlts = { ...(ud.alternativasActivas || {}) }
+    const registros_ = ud.registros || {}
+    for (const dia of dias_) {
+      for (const ej of (dia.ejercicios || [])) {
+        if (ej.tipo !== 'peso' && ej.tipo !== 'peso_reps' && ej.tipo !== 'kg') continue
+        const hist = Object.entries(registros_[ej.id] || {}).sort(([a], [b]) => {
+          const [da, ma, ya] = a.split('/').map(Number)
+          const [db, mb, yb] = b.split('/').map(Number)
+          return new Date(ya, ma - 1, da) - new Date(yb, mb - 1, db)
+        })
+        if (hist.length >= 3) {
+          // Detectar estancamiento: últimas 3 sesiones sin mejora
+          const vals = hist.slice(-3).map(([, s]) => {
+            const v = s.s1 || ''
+            return ej.tipo === 'peso_reps' ? Number(v.split('|')[0]) : Number(v)
+          })
+          if (vals[2] <= vals[0] && vals[2] <= vals[1] && !nuevasAlts[ej.id]) {
+            const grupo = matchMusculo(ej.musculo)
+            const candidatos = fitcronEjercicios.filter(e => e.musculo === grupo && e.gif)
+            if (candidatos.length > 0) {
+              nuevasAlts[ej.id] = candidatos[Math.floor(Math.random() * candidatos.length)]
+              cambios.push(`🔄 ${ej.nombre}: cambiado por estancamiento`)
+            }
+          }
+        }
+      }
+    }
+
+    const nuevoUd = {
+      ...ud,
+      seriesExtra: nuevoExtra,
+      alternativasActivas: nuevasAlts,
+      ultimaRevisionSemana: semanaActual,
+    }
+    setUdState(nuevoUd)
+    clearTimeout(saveTimer.current)
+    saveTimer.current = setTimeout(() => saveUserData(userId, nuevoUd), 1000)
+
+    if (cambios.length > 0) {
+      setRevisionBanner({ semana: semanaActual, cambios })
+    }
+  }, [userId, ud.ultimaRevisionSemana]) // solo corre cuando cambia la semana o el usuario
 
   // Guardar datos de usuario con debounce (1s)
   const setUd = useCallback((newUd) => {
@@ -456,13 +546,20 @@ export default function App() {
   }
 
   // ── Aplicar correcciones desde alertas ───────────────────────────────────
+  // ── Helpers de corrección ─────────────────────────────────────────────────
+  function calcularSeriesBaseGrupo() {
+    const base = {}
+    DIAS.forEach(d => d.ejercicios.forEach(ej => {
+      const g = normalizarMusculo(ej.musculo)
+      base[g] = (base[g] || 0) + ej.series
+    }))
+    return base
+  }
+
   function aplicarCorreccionAlerta(alerta) {
     const niv = user?.nivel || 'intermedio'
     const MEV = { principiante: 6, intermedio: 10, avanzado: 12 }[niv] || 10
-    const seriesBase = {}
-    DIAS.forEach(d => d.ejercicios.forEach(ej => {
-      seriesBase[ej.musculo] = (seriesBase[ej.musculo] || 0) + ej.series
-    }))
+    const MRV = { principiante: 16, intermedio: 20, avanzado: 22 }[niv] || 20
     if (alerta.tipo === 'deload') {
       updateUser({ cicloActual: 'deload', cicloSemanaInicio: getWeekKey() })
     } else if (alerta.tipo === 'plateau' && alerta.ejId) {
@@ -473,55 +570,41 @@ export default function App() {
         setUd({ ...ud, alternativasActivas: { ...alternativasActivas, [alerta.ejId]: alt } })
       }
     } else if (alerta.tipo === 'volumen_bajo' && alerta.musculo) {
-      // seriesBase está agrupado por grupo muscular normalizado
-      const seriesBaseGrupo = {}
-      DIAS.forEach(d => d.ejercicios.forEach(ej => {
-        const g = normalizarMusculo(ej.musculo)
-        seriesBaseGrupo[g] = (seriesBaseGrupo[g] || 0) + ej.series
-      }))
-      const base = seriesBaseGrupo[alerta.musculo] || 0
-      const extra = Math.min(Math.max(0, MEV - base), 4)
+      const baseGrupo = calcularSeriesBaseGrupo()
+      const base = baseGrupo[alerta.musculo] || 0
+      const extra = Math.min(Math.max(0, MEV - base), MRV - base)
       if (extra > 0) {
         setUd({ ...ud, seriesExtra: { ...(ud.seriesExtra || {}), [alerta.musculo]: extra } })
       }
     }
   }
+
   function aplicarTodasLasCorrecciones(listaAlertas) {
-    const obj = user?.objetivo || 'recomposicion'
     const niv = user?.nivel || 'intermedio'
-    // Límites por nivel (MRV = máximo recuperable por semana por músculo)
+    const MEV = { principiante: 6, intermedio: 10, avanzado: 12 }[niv] || 10
     const MRV = { principiante: 16, intermedio: 20, avanzado: 22 }[niv] || 20
-    // Calcular cuántas series planificadas hay por músculo en la rutina base
-    const seriesBase = {}
-    DIAS.forEach(d => d.ejercicios.forEach(ej => {
-      seriesBase[ej.musculo] = (seriesBase[ej.musculo] || 0) + ej.series
-    }))
-
+    const baseGrupo = calcularSeriesBaseGrupo()
     let nuevasAlts = { ...alternativasActivas }
-    // RESET: no acumular — recalcular desde cero en cada aplicación
-    const nuevoExtra = {}
+    const nuevoExtra = {} // RESET — siempre recalcula desde cero
     let deload = false
-
     for (const alerta of listaAlertas) {
       if (alerta.tipo === 'deload') {
         deload = true
       } else if (alerta.tipo === 'plateau' && alerta.ejId) {
         const grupo = matchMusculo(alerta.ejMusculo || '')
         const candidatos = fitcronEjercicios.filter(e => e.musculo === grupo && e.gif)
-        if (candidatos.length > 0) {
+        if (candidatos.length > 0)
           nuevasAlts[alerta.ejId] = candidatos[Math.floor(Math.random() * candidatos.length)]
-        }
       } else if (alerta.tipo === 'volumen_bajo' && alerta.musculo) {
-        // Añadir series hasta llegar al MEV, sin superar MRV
-        const base = seriesBase[alerta.musculo] || 0
-        const MEV = { principiante: 6, intermedio: 10, avanzado: 12 }[niv] || 10
-        const extra = Math.min(Math.max(0, MEV - base), MRV - base, 4)
+        const base = baseGrupo[alerta.musculo] || 0
+        const extra = Math.min(Math.max(0, MEV - base), MRV - base)
         if (extra > 0) nuevoExtra[alerta.musculo] = extra
       }
     }
     setUd({ ...ud, alternativasActivas: nuevasAlts, seriesExtra: nuevoExtra })
     if (deload) updateUser({ cicloActual: 'deload', cicloSemanaInicio: getWeekKey() })
   }
+
   function resetearCorrecciones() {
     setUd({ ...ud, seriesExtra: {}, alternativasActivas: {} })
   }
@@ -632,6 +715,18 @@ export default function App() {
         {/* ══════════ ENTRENO ══════════ */}
         {tab === 'entreno' && (
           <>
+            {/* Banner revisión semanal */}
+            {revisionBanner && (
+              <div style={{ background: '#f0fdf4', borderRadius: 14, padding: '12px 16px', marginBottom: 12, border: '1.5px solid #10b981' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#10b981', marginBottom: 6 }}>✅ Revisión semanal aplicada · {revisionBanner.semana}</div>
+                  <button onClick={() => setRevisionBanner(null)} style={{ background: 'none', border: 'none', color: '#10b981', fontSize: 16, cursor: 'pointer', padding: 0 }}>✕</button>
+                </div>
+                {revisionBanner.cambios.map((c, i) => (
+                  <div key={i} style={{ fontSize: 12, color: '#065f46', marginBottom: 2 }}>{c}</div>
+                ))}
+              </div>
+            )}
             {/* Calendario */}
             {(() => {
               const semana = getSemanaActual()
