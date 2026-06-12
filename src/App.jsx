@@ -127,6 +127,20 @@ function PantallaUsuarios({ users, onSelect, onCreate, onDelete }) {
   const [creando, setCreando] = useState(false)
   const [nombre, setNombre] = useState('')
   const [avatar, setAvatar] = useState('💪')
+  const [borrandoId, setBorrandoId] = useState(null)
+  const [codigoBorrar, setCodigoBorrar] = useState('')
+  const [errorCodigo, setErrorCodigo] = useState(false)
+
+  function intentarBorrar(u) {
+    if (codigoBorrar === 'borrarok') {
+      onDelete(u.id)
+      setBorrandoId(null)
+      setCodigoBorrar('')
+      setErrorCodigo(false)
+    } else {
+      setErrorCodigo(true)
+    }
+  }
 
   function guardar() {
     if (!nombre.trim()) return
@@ -155,12 +169,50 @@ function PantallaUsuarios({ users, onSelect, onCreate, onDelete }) {
                 </div>
               </div>
               <button onClick={() => onSelect(u)} style={{ padding: '10px 18px', borderRadius: 12, background: '#6366f1', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: 14 }}>Entrar</button>
-              <button onClick={() => { if (confirm(`¿Eliminar a ${u.nombre}?`)) onDelete(u.id) }}
+              <button onClick={() => { setBorrandoId(u.id); setCodigoBorrar(''); setErrorCodigo(false) }}
                 style={{ padding: '10px', borderRadius: 12, background: '#fff0f0', color: '#ff3b30', border: 'none', cursor: 'pointer', fontSize: 16 }}>🗑️</button>
             </div>
           )
         })}
       </div>
+
+      {/* Modal borrar con código */}
+      {borrandoId && (() => {
+        const u = users.find(x => x.id === borrandoId)
+        return (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
+            onClick={() => setBorrandoId(null)}>
+            <div style={{ background: '#fff', borderRadius: 20, padding: 24, width: '100%', maxWidth: 340 }} onClick={e => e.stopPropagation()}>
+              <div style={{ fontSize: 32, textAlign: 'center' }}>🗑️</div>
+              <div style={{ fontSize: 17, fontWeight: 800, textAlign: 'center', marginTop: 10 }}>Eliminar a {u?.nombre}</div>
+              <div style={{ fontSize: 13, color: '#8e8e93', textAlign: 'center', marginTop: 6, marginBottom: 20 }}>
+                Se borrarán todos sus datos. Escribe el código para confirmar.
+              </div>
+              <div style={S.label}>Código de confirmación</div>
+              <input
+                autoFocus
+                type="text"
+                placeholder="escribe el código aquí"
+                value={codigoBorrar}
+                onChange={e => { setCodigoBorrar(e.target.value); setErrorCodigo(false) }}
+                onKeyDown={e => e.key === 'Enter' && intentarBorrar(u)}
+                style={{ ...S.input, marginBottom: 6, border: errorCodigo ? '1.5px solid #ff3b30' : '1px solid #e5e5ea' }}
+              />
+              {errorCodigo && <div style={{ fontSize: 12, color: '#ff3b30', marginBottom: 12 }}>Código incorrecto, inténtalo de nuevo.</div>}
+              <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
+                <button onClick={() => setBorrandoId(null)}
+                  style={{ flex: 1, padding: 13, borderRadius: 12, background: '#f5f5f7', color: '#8e8e93', border: 'none', cursor: 'pointer', fontWeight: 600 }}>
+                  Cancelar
+                </button>
+                <button onClick={() => intentarBorrar(u)}
+                  style={{ flex: 1, padding: 13, borderRadius: 12, background: '#ff3b30', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 700 }}>
+                  Eliminar
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {!creando ? (
         <button onClick={() => setCreando(true)} style={{ width: '100%', padding: '16px', borderRadius: 16, border: '2px dashed #d1d5db', background: 'transparent', color: '#6366f1', fontWeight: 700, fontSize: 15, cursor: 'pointer' }}>
