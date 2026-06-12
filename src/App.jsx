@@ -440,22 +440,27 @@ export default function App() {
 
   // ── Aplicar correcciones desde alertas ───────────────────────────────────
   function aplicarCorreccionAlerta(alerta) {
-    if (alerta.tipo === 'deload') {
-      updateUser({ cicloActual: 'deload', cicloSemanaInicio: getWeekKey() })
-    } else if (alerta.tipo === 'plateau' && alerta.ejId) {
-      // Asignar una alternativa fitcron aleatoria del mismo grupo muscular
-      const grupo = matchMusculo(alerta.ejMusculo || '')
-      const candidatos = fitcronEjercicios.filter(e => e.musculo === grupo && e.gif)
-      if (candidatos.length > 0) {
-        const alt = candidatos[Math.floor(Math.random() * candidatos.length)]
-        const nuevas = { ...alternativasActivas, [alerta.ejId]: alt }
-        setUd({ ...ud, alternativasActivas: nuevas })
+    aplicarTodasLasCorrecciones([alerta])
+  }
+  function aplicarTodasLasCorrecciones(listaAlertas) {
+    let nuevasAlts = { ...alternativasActivas }
+    let nuevoExtra = { ...(ud.seriesExtra || {}) }
+    let deload = false
+    for (const alerta of listaAlertas) {
+      if (alerta.tipo === 'deload') {
+        deload = true
+      } else if (alerta.tipo === 'plateau' && alerta.ejId) {
+        const grupo = matchMusculo(alerta.ejMusculo || '')
+        const candidatos = fitcronEjercicios.filter(e => e.musculo === grupo && e.gif)
+        if (candidatos.length > 0) {
+          nuevasAlts[alerta.ejId] = candidatos[Math.floor(Math.random() * candidatos.length)]
+        }
+      } else if (alerta.tipo === 'volumen_bajo' && alerta.musculo) {
+        nuevoExtra[alerta.musculo] = (nuevoExtra[alerta.musculo] || 0) + 1
       }
-    } else if (alerta.tipo === 'volumen_bajo' && alerta.musculo) {
-      // Marcar +1 serie para ese grupo muscular (almacenado en ud.seriesExtra)
-      const extra = { ...(ud.seriesExtra || {}), [alerta.musculo]: ((ud.seriesExtra || {})[alerta.musculo] || 0) + 1 }
-      setUd({ ...ud, seriesExtra: extra })
     }
+    setUd({ ...ud, alternativasActivas: nuevasAlts, seriesExtra: nuevoExtra })
+    if (deload) updateUser({ cicloActual: 'deload', cicloSemanaInicio: getWeekKey() })
   }
 
   // ── Motor de reglas (después de semanasCiclo) ─────────────────────────────
@@ -945,7 +950,15 @@ export default function App() {
                     ))}
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {PLATOS_PREPARADOS.filter(p => filtroServicio === 'Todos' || p.servicio === filtroServicio).map((p, i) => (
+                    {PLATOS_PREPARADOS.filter(p => filtroServicio === 'Todos' || p.servicio === filtroServicio).map((p, i) => {
+                      // Determinar qué momento del día encaja mejor según macros
+                      const slots = []
+                      if (p.p >= 30 && p.c >= 30) slots.push({ label: 'Post-entreno', color: '#6366f1', bg: '#eef2ff' })
+                      if (p.kcal >= 400 && p.kcal <= 650 && p.p >= 25) slots.push({ label: 'Comida', color: '#f97316', bg: '#fff7ed' })
+                      if (p.kcal <= 400 && p.p >= 15) slots.push({ label: 'Merienda', color: '#10b981', bg: '#ecfdf5' })
+                      if (p.kcal <= 450 && p.c <= 20) slots.push({ label: 'Cena', color: '#8b5cf6', bg: '#f5f3ff' })
+                      if (slots.length === 0) slots.push({ label: 'Comida', color: '#f97316', bg: '#fff7ed' })
+                      return (
                       <div key={i} style={{ background: '#f9f9fb', borderRadius: 12, padding: '12px 14px' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
                           <div style={{ flex: 1 }}>
@@ -954,7 +967,7 @@ export default function App() {
                           </div>
                           <span style={{ fontSize: 14, fontWeight: 800, color: '#f97316', marginLeft: 8 }}>{p.kcal} kcal</span>
                         </div>
-                        <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+                        <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
                           {[['P', p.p, '#6366f1'], ['C', p.c, '#f59e0b'], ['G', p.g, '#a855f7']].map(([l, v, c]) => (
                             <div key={l} style={{ background: '#fff', borderRadius: 8, padding: '4px 8px', textAlign: 'center', flex: 1 }}>
                               <div style={{ fontSize: 9, color: '#8e8e93' }}>{l}</div>
@@ -962,9 +975,17 @@ export default function App() {
                             </div>
                           ))}
                         </div>
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
+                          {slots.map(s => (
+                            <span key={s.label} style={{ fontSize: 10, fontWeight: 700, color: s.color, background: s.bg, borderRadius: 20, padding: '2px 8px' }}>
+                              ✓ {s.label}
+                            </span>
+                          ))}
+                        </div>
                         <div style={{ fontSize: 11, color: '#6366f1', fontStyle: 'italic' }}>{p.nota}</div>
                       </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 </div>
               )}
@@ -1034,7 +1055,7 @@ export default function App() {
                     <div style={{ ...S.card, overflow: 'hidden', marginBottom: 10 }}>
                       <div style={{ padding: '12px 16px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <span style={{ fontSize: 13, fontWeight: 700, color: '#8e8e93' }}>ALERTAS DE ENTRENAMIENTO</span>
-                        <button onClick={() => alertas.forEach(a => aplicarCorreccionAlerta(a))}
+                        <button onClick={() => aplicarTodasLasCorrecciones(alertas)}
                           style={{ padding: '5px 12px', borderRadius: 20, border: '1.5px solid #6366f1', background: '#eef2ff', color: '#6366f1', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
                           ✅ Corregir todo
                         </button>
