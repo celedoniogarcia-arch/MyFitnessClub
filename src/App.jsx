@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { CICLOS, PLATOS, AVATARS, getDiasCiclo } from './data.js'
+import { CICLOS, PLATOS, PLATOS_PREPARADOS, AVATARS, getDiasCiclo, matchMusculo } from './data.js'
+import fitcronEjercicios from './fitcron_exercises.json'
 import { getProfiles, upsertProfile, deleteProfile, getUserData, saveUserData, getDieta, saveDieta } from './db.js'
 import { OBJETIVOS, NIVELES, generarRecomendaciones, calcularNutricionObjetivo } from './rulesEngine.js'
 
@@ -256,10 +257,12 @@ export default function App() {
   const [userId, setUserId] = useState(null)
   const [udLoading, setUdLoading] = useState(false)
   const [tab, setTab] = useState('entreno')
-  const hoyDow = (() => { const d = new Date().getDay(); return d === 0 ? 4 : Math.min(d - 1, 4) })()
+  const hoyDow = (() => { const d = new Date().getDay(); return d === 0 ? 6 : d - 1 })()
   const [diaIdx, setDiaIdx] = useState(hoyDow)
   const [ejAbierto, setEjAbierto] = useState(null)
   const [altAbierta, setAltAbierta] = useState(null)
+  const [mostrarPreparados, setMostrarPreparados] = useState(false)
+  const [filtroServicio, setFiltroServicio] = useState('Todos')
   const [ud, setUdState] = useState({})
   const [dietaData, setDietaDataState] = useState({})
   const [pesoInput, setPesoInput] = useState('')
@@ -304,7 +307,8 @@ export default function App() {
   const cicloActual = user?.cicloActual || 'hiper'
   const cicloInfo = CICLOS.find(c => c.id === cicloActual) || CICLOS[0]
   const DIAS = getDiasCiclo(cicloActual)
-  const dia = DIAS[diaIdx]
+  const esFinde = diaIdx >= 5
+  const dia = DIAS[Math.min(diaIdx, 4)]
 
   function updateUser(fields) {
     const updated = users.map(u => u.id === userId ? { ...u, ...fields } : u)
@@ -412,6 +416,27 @@ export default function App() {
   }
   const semanasCiclo = semanasEnCiclo()
   const semanasRestantes = Math.max(0, cicloInfo.semanas - semanasCiclo)
+
+  // ── Alternativas de fitcron ───────────────────────────────────────────────
+  const alternativasActivas = ud.alternativasActivas || {}
+  function getFitcronAlts(ej, n = 8) {
+    const grupo = matchMusculo(ej.musculo)
+    if (!grupo) return []
+    return fitcronEjercicios
+      .filter(e => e.musculo === grupo && e.gif && e.slug !== ej.id)
+      .sort(() => 0.5 - Math.random())
+      .slice(0, n)
+  }
+  function seleccionarAlternativa(ejId, alt) {
+    const nuevas = { ...alternativasActivas, [ejId]: alt }
+    setUd({ ...ud, alternativasActivas: nuevas })
+    setAltAbierta(null)
+  }
+  function restaurarOriginal(ejId) {
+    const nuevas = { ...alternativasActivas }
+    delete nuevas[ejId]
+    setUd({ ...ud, alternativasActivas: nuevas })
+  }
 
   // ── Motor de reglas (después de semanasCiclo) ─────────────────────────────
   const reglas = generarRecomendaciones({
@@ -534,11 +559,11 @@ export default function App() {
                       const esHoy = f.getTime() === hoy.getTime()
                       const esActivo = !esFinde && diaIdx === i
                       return (
-                        <button key={i} onClick={() => { if (!esFinde) { setDiaIdx(i); setEjAbierto(null); setAltAbierta(null) } }}
-                          style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: '8px 4px', borderRadius: 12, border: 'none', cursor: esFinde ? 'default' : 'pointer', background: esActivo ? cicloInfo.color : esHoy ? cicloInfo.bg : 'transparent', opacity: esFinde ? 0.3 : 1, transition: 'all .15s' }}>
+                        <button key={i} onClick={() => { setDiaIdx(i); setEjAbierto(null); setAltAbierta(null) }}
+                          style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: '8px 4px', borderRadius: 12, border: 'none', cursor: 'pointer', background: esActivo ? (i >= 5 ? '#10b981' : cicloInfo.color) : esHoy ? cicloInfo.bg : 'transparent', transition: 'all .15s' }}>
                           <span style={{ fontSize: 10, fontWeight: 600, color: esActivo ? '#fff' : '#8e8e93' }}>{DIAS_SEMANA_LABEL[i]}</span>
                           <span style={{ fontSize: 17, fontWeight: 800, color: esActivo ? '#fff' : esHoy ? cicloInfo.color : '#1c1c1e' }}>{fecha.getDate()}</span>
-                          <span style={{ fontSize: 13, lineHeight: 1 }}>{!esFinde ? (esActivo || esHoy ? DIAS[i]?.emoji : '·') : '😴'}</span>
+                          <span style={{ fontSize: 13, lineHeight: 1 }}>{i >= 5 ? '🏖️' : (esActivo || esHoy ? DIAS[i]?.emoji : '·')}</span>
                         </button>
                       )
                     })}
@@ -555,6 +580,18 @@ export default function App() {
               const hoy = new Date(); hoy.setHours(0,0,0,0)
               const esHoy = f.getTime() === hoy.getTime()
               const fechaStr = fecha.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })
+              if (esFinde) return (
+                <div style={{ ...S.card, background: '#ecfdf5', marginBottom: 12 }}>
+                  <div style={{ padding: 16 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div style={{ fontSize: 20, fontWeight: 800, color: '#10b981' }}>🏖️ Descanso activo</div>
+                      {esHoy && <span style={{ fontSize: 11, fontWeight: 700, background: '#10b981', color: '#fff', padding: '3px 10px', borderRadius: 20 }}>Hoy</span>}
+                    </div>
+                    <div style={{ fontSize: 12, color: '#10b981', marginTop: 4, fontWeight: 500, textTransform: 'capitalize' }}>{fechaStr}</div>
+                    <div style={{ marginTop: 8, fontSize: 12, color: '#8e8e93' }}>💤 Sin pesas hoy — registra actividades como pádel, ruta, bici…</div>
+                  </div>
+                </div>
+              )
               return (
                 <div style={{ ...S.card, background: dia.bg, marginBottom: 12 }}>
                   <div style={{ padding: 16 }}>
@@ -602,23 +639,27 @@ export default function App() {
               )}
             </div>
 
-            {/* Ejercicios */}
-            {dia.ejercicios.map((ej, idx) => {
+            {/* Ejercicios — solo días de semana */}
+            {!esFinde && dia.ejercicios.map((ej, idx) => {
               const open = ejAbierto === ej.id
               const altOpen = altAbierta === ej.id
+              const altActiva = alternativasActivas[ej.id]
+              // El ejercicio a mostrar puede ser el original o una alternativa seleccionada
+              const ejMostrado = altActiva ? { ...ej, nombre: altActiva.nombre, gif: altActiva.gif, musculo: altActiva.musculo } : ej
               const max = getMaxValor(ej.id, ej.tipo)
               const ultimo = getUltimoValor(ej.id)
               const esDeload = String(ej.reps).includes('deload')
               const etiquetaMax = max ? (ej.tipo === 'tiempo' ? `🕐 ${max}s` : ej.tipo === 'reps' ? `✓ ${max} reps` : `🏆 ${max}kg`) : null
+              const alts = getFitcronAlts(ej)
 
               return (
-                <div key={ej.id} style={{ ...S.card, border: open ? `2px solid ${cicloInfo.color}` : '2px solid transparent' }}>
+                <div key={ej.id} style={{ ...S.card, border: open ? `2px solid ${cicloInfo.color}` : altActiva ? `2px solid #10b981` : '2px solid transparent' }}>
                   <button onClick={() => { setEjAbierto(open ? null : ej.id); setAltAbierta(null) }}
                     style={{ width: '100%', padding: '14px 16px', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <div style={{ width: 34, height: 34, borderRadius: 10, background: cicloInfo.bg, color: cicloInfo.color, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{idx + 1}</div>
+                    <div style={{ width: 34, height: 34, borderRadius: 10, background: altActiva ? '#dcfce7' : cicloInfo.bg, color: altActiva ? '#10b981' : cicloInfo.color, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{altActiva ? '🔄' : idx + 1}</div>
                     <div style={{ flex: 1, textAlign: 'left' }}>
-                      <div style={{ fontSize: 15, fontWeight: 700, color: '#1c1c1e' }}>{ej.nombre}</div>
-                      <div style={{ fontSize: 12, color: '#8e8e93', marginTop: 2 }}>{ej.musculo}</div>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: '#1c1c1e' }}>{ejMostrado.nombre}</div>
+                      <div style={{ fontSize: 12, color: '#8e8e93', marginTop: 2 }}>{ejMostrado.musculo}</div>
                     </div>
                     <div style={{ textAlign: 'right', marginRight: 6 }}>
                       <div style={{ fontSize: 13, fontWeight: 700, color: cicloInfo.color }}>{ej.series}×{ej.tipo === 'tiempo' ? `${ej.reps}s` : ej.reps}</div>
@@ -629,14 +670,14 @@ export default function App() {
 
                   {open && (
                     <div style={{ borderTop: '1px solid #f2f2f7', padding: '14px 16px' }}>
-                      {/* GIF — referrerPolicy="no-referrer" para evitar bloqueos de hotlink */}
-                      <div style={{ borderRadius: 12, overflow: 'hidden', marginBottom: 12, background: '#f5f5f7', aspectRatio: '16/9', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
-                        <img src={ej.gif} alt={ej.nombre} referrerPolicy="no-referrer"
-                          style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                      {/* GIF — contain para no recortar la imagen */}
+                      <div style={{ borderRadius: 12, overflow: 'hidden', marginBottom: 12, background: '#f5f5f7', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 180, position: 'relative' }}>
+                        <img src={ejMostrado.gif} alt={ejMostrado.nombre} referrerPolicy="no-referrer"
+                          style={{ width: '100%', maxHeight: 280, objectFit: 'contain', display: 'block' }}
                           onError={e => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex' }} />
                         <div style={{ display: 'none', position: 'absolute', inset: 0, flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, color: '#8e8e93' }}>
                           <span style={{ fontSize: 40 }}>🏋️</span>
-                          <span style={{ fontSize: 13 }}>{ej.nombre}</span>
+                          <span style={{ fontSize: 13 }}>{ejMostrado.nombre}</span>
                         </div>
                       </div>
 
@@ -671,26 +712,40 @@ export default function App() {
                         )
                       })()}
 
-                      {ej.alternativas?.length > 0 && (
-                        <>
-                          <button onClick={() => setAltAbierta(altOpen ? null : ej.id)}
-                            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 14px', borderRadius: 10, border: `1px solid ${cicloInfo.color}`, background: 'transparent', color: cicloInfo.color, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-                            🔄 {altOpen ? 'Ocultar alternativas' : `Si la máquina no está (${ej.alternativas.length})`}
+                      {/* Alternativas de fitcron */}
+                      <div style={{ display: 'flex', gap: 8, marginBottom: altOpen ? 10 : 0 }}>
+                        <button onClick={() => setAltAbierta(altOpen ? null : ej.id)}
+                          style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '9px 14px', borderRadius: 10, border: `1px solid ${cicloInfo.color}`, background: 'transparent', color: cicloInfo.color, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                          🔄 {altOpen ? 'Ocultar' : `Alternativas (${alts.length})`}
+                        </button>
+                        {altActiva && (
+                          <button onClick={() => restaurarOriginal(ej.id)}
+                            style={{ padding: '9px 12px', borderRadius: 10, border: '1px solid #e5e5ea', background: '#f5f5f7', color: '#8e8e93', fontSize: 13, cursor: 'pointer', fontWeight: 600 }}>
+                            ↩ Original
                           </button>
-                          {altOpen && (
-                            <div style={{ marginTop: 10, background: '#f5f5f7', borderRadius: 12, overflow: 'hidden' }}>
-                              {ej.alternativas.map((alt, i) => (
-                                <div key={i} style={{ padding: '11px 14px', borderBottom: i < ej.alternativas.length - 1 ? '1px solid #e5e5ea' : 'none', display: 'flex', justifyContent: 'space-between' }}>
-                                  <div>
-                                    <div style={{ fontSize: 13, fontWeight: 600 }}>{alt.nombre}</div>
-                                    <div style={{ fontSize: 11, color: '#8e8e93', marginTop: 2 }}>{alt.musculo}</div>
-                                  </div>
-                                  <span style={{ fontSize: 18 }}>💪</span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </>
+                        )}
+                      </div>
+                      {altOpen && alts.length > 0 && (
+                        <div style={{ background: '#f5f5f7', borderRadius: 12, overflow: 'hidden' }}>
+                          {alts.map((alt, i) => (
+                            <button key={i} onClick={() => seleccionarAlternativa(ej.id, alt)}
+                              style={{ width: '100%', padding: '12px 14px', borderBottom: i < alts.length - 1 ? '1px solid #e5e5ea' : 'none', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left' }}>
+                              <img src={alt.gif} alt={alt.nombre} referrerPolicy="no-referrer"
+                                style={{ width: 56, height: 56, borderRadius: 8, objectFit: 'contain', background: '#fff', flexShrink: 0 }}
+                                onError={e => { e.target.style.display = 'none' }} />
+                              <div style={{ flex: 1 }}>
+                                <div style={{ fontSize: 13, fontWeight: 600, color: '#1c1c1e' }}>{alt.nombre}</div>
+                                <div style={{ fontSize: 11, color: '#8e8e93', marginTop: 2 }}>{alt.musculo}</div>
+                              </div>
+                              <span style={{ fontSize: 12, color: cicloInfo.color, fontWeight: 700 }}>Usar →</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      {altOpen && alts.length === 0 && (
+                        <div style={{ padding: '16px', textAlign: 'center', color: '#8e8e93', fontSize: 13 }}>
+                          No hay alternativas disponibles para este músculo.
+                        </div>
                       )}
                     </div>
                   )}
@@ -849,6 +904,51 @@ export default function App() {
                 ))}
               </>
             )}
+
+            {/* Comida preparada / supermercado */}
+            <div style={{ ...S.card, marginTop: 10 }}>
+              <button onClick={() => setMostrarPreparados(!mostrarPreparados)}
+                style={{ width: '100%', padding: '16px', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ textAlign: 'left' }}>
+                  <div style={{ fontSize: 15, fontWeight: 700 }}>🛒 Comida preparada</div>
+                  <div style={{ fontSize: 12, color: '#8e8e93', marginTop: 2 }}>Mercadona · Wetaca · Knoweats · Batch cooking</div>
+                </div>
+                <span style={{ fontSize: 11, color: '#c7c7cc' }}>{mostrarPreparados ? '▲' : '▼'}</span>
+              </button>
+              {mostrarPreparados && (
+                <div style={{ borderTop: '1px solid #f2f2f7', padding: '12px 16px' }}>
+                  {/* Filtro por servicio */}
+                  <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 10, marginBottom: 10 }}>
+                    {['Todos', ...new Set(PLATOS_PREPARADOS.map(p => p.servicio))].map(s => (
+                      <button key={s} onClick={() => setFiltroServicio(s)}
+                        style={{ ...S.btnPill(filtroServicio === s, '#6366f1'), whiteSpace: 'nowrap' }}>{s}</button>
+                    ))}
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {PLATOS_PREPARADOS.filter(p => filtroServicio === 'Todos' || p.servicio === filtroServicio).map((p, i) => (
+                      <div key={i} style={{ background: '#f9f9fb', borderRadius: 12, padding: '12px 14px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 13, fontWeight: 700 }}>{p.nombre}</div>
+                            <div style={{ fontSize: 11, color: '#8e8e93', marginTop: 2 }}>{p.servicio} · {p.precio}</div>
+                          </div>
+                          <span style={{ fontSize: 14, fontWeight: 800, color: '#f97316', marginLeft: 8 }}>{p.kcal} kcal</span>
+                        </div>
+                        <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+                          {[['P', p.p, '#6366f1'], ['C', p.c, '#f59e0b'], ['G', p.g, '#a855f7']].map(([l, v, c]) => (
+                            <div key={l} style={{ background: '#fff', borderRadius: 8, padding: '4px 8px', textAlign: 'center', flex: 1 }}>
+                              <div style={{ fontSize: 9, color: '#8e8e93' }}>{l}</div>
+                              <div style={{ fontSize: 13, fontWeight: 800, color: c }}>{v}g</div>
+                            </div>
+                          ))}
+                        </div>
+                        <div style={{ fontSize: 11, color: '#6366f1', fontStyle: 'italic' }}>{p.nota}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           </>
         )}
 

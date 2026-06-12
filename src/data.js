@@ -177,22 +177,69 @@ export const PLATOS = {
     { nombre: 'Pollo + arroz + brócoli', kcal: 580, p: 52, c: 60, g: 10, receta: '200g pechuga a la plancha, 80g arroz basmati, brócoli al vapor con AOVE' },
     { nombre: 'Salmón + boniato + ensalada', kcal: 560, p: 45, c: 50, g: 14, receta: '180g salmón al horno con limón, 200g boniato, lechuga y tomate' },
     { nombre: 'Ternera + pasta integral', kcal: 600, p: 50, c: 58, g: 12, receta: '180g ternera, 80g pasta integral, salsa de tomate natural' },
+    { nombre: 'Claras + tortitas de avena', kcal: 420, p: 40, c: 48, g: 6, receta: '200g claras de huevo revueltas, 60g copos de avena, arándanos y miel' },
   ],
   comida: [
     { nombre: 'Merluza + quinoa + verduras', kcal: 520, p: 48, c: 50, g: 9, receta: '200g merluza al vapor, 70g quinoa, pimientos y cebolla salteados' },
     { nombre: 'Pechuga al horno + garbanzos', kcal: 540, p: 50, c: 45, g: 10, receta: '200g pechuga, 150g garbanzos, pimientos rojos asados' },
     { nombre: 'Atún + arroz + aguacate', kcal: 510, p: 46, c: 48, g: 13, receta: '2 latas atún al natural, 70g arroz, 1/2 aguacate, limón' },
+    { nombre: 'Lentejas + pollo + espinacas', kcal: 530, p: 48, c: 52, g: 8, receta: '150g lentejas cocidas, 150g pechuga a tiras, espinacas salteadas' },
   ],
   merienda: [
     { nombre: 'Yogur griego + frutos rojos', kcal: 320, p: 22, c: 28, g: 12, receta: '200g yogur griego 0%, 80g arándanos, 15g nueces' },
     { nombre: 'Batido proteico + plátano', kcal: 340, p: 32, c: 38, g: 5, receta: '30g proteína de suero, 250ml leche semidesnatada, 1 plátano' },
     { nombre: 'Tostadas + huevo + aguacate', kcal: 360, p: 20, c: 32, g: 16, receta: '2 tostadas integrales, 2 huevos revueltos, 1/2 aguacate' },
+    { nombre: 'Queso cottage + fruta + almendras', kcal: 300, p: 26, c: 22, g: 10, receta: '200g queso cottage, 1 manzana, 15g almendras' },
   ],
   cena: [
     { nombre: 'Tortilla + ensalada mixta', kcal: 380, p: 32, c: 10, g: 18, receta: '3 huevos, cebolla, pimiento, ensalada con AOVE' },
     { nombre: 'Salmón a la plancha + espárragos', kcal: 400, p: 40, c: 6, g: 16, receta: '180g salmón, espárragos a la plancha, limón' },
     { nombre: 'Pollo al horno + calabacín', kcal: 360, p: 42, c: 12, g: 10, receta: '200g pechuga con hierbas, calabacín y cebolla salteados' },
+    { nombre: 'Merluza al vapor + brócoli + huevo', kcal: 340, p: 44, c: 8, g: 10, receta: '200g merluza, brócoli al vapor, 1 huevo cocido, AOVE' },
   ],
+}
+
+// Comida preparada de supermercado / servicios de tupper
+export const PLATOS_PREPARADOS = [
+  // ── Mercadona ──────────────────────────────────────────────────────────────
+  { servicio: 'Mercadona', nombre: 'Pollo asado con verduras', kcal: 280, p: 32, c: 8, g: 12, precio: '~3.50€', nota: 'Bandeja lista para calentar. Alta proteína, bajo carbo.' },
+  { servicio: 'Mercadona', nombre: 'Poke de salmón y arroz', kcal: 420, p: 28, c: 46, g: 12, precio: '~4.50€', nota: 'Rico en omega-3. Comer frío o templado.' },
+  { servicio: 'Mercadona', nombre: 'Garbanzos a la jardinera', kcal: 300, p: 14, c: 38, g: 8, precio: '~1.80€', nota: 'Conserva. Alta fibra, legumbre completa.' },
+  { servicio: 'Mercadona', nombre: 'Ensalada de pollo y frutos secos', kcal: 350, p: 22, c: 18, g: 20, precio: '~3.20€', nota: 'Bandeja fría lista para comer. Grasa saludable de frutos secos.' },
+  { servicio: 'Mercadona', nombre: 'Merluza en salsa verde', kcal: 240, p: 26, c: 6, g: 10, precio: '~3.80€', nota: 'Bandeja refrigerada. Bajo en calorías, alto en proteína de pescado.' },
+  { servicio: 'Mercadona', nombre: 'Pollo al ajillo (bandeja)', kcal: 310, p: 34, c: 4, g: 16, precio: '~3.20€', nota: 'Sin gluten. Proteína alta, pocas calorías.' },
+  // ── Wetaca ─────────────────────────────────────────────────────────────────
+  { servicio: 'Wetaca', nombre: 'Pollo con batata y brócoli', kcal: 490, p: 42, c: 44, g: 12, precio: '~6.90€', nota: 'Macro equilibrado. Ideal post-entreno.' },
+  { servicio: 'Wetaca', nombre: 'Salmón con quinoa y espinacas', kcal: 520, p: 40, c: 38, g: 18, precio: '~7.50€', nota: 'Rico en omega-3 y hierro. Excelente para recomposición.' },
+  { servicio: 'Wetaca', nombre: 'Ternera con arroz integral y judías', kcal: 560, p: 46, c: 50, g: 14, precio: '~7.20€', nota: 'Alta proteína animal. Para ciclos de volumen.' },
+  { servicio: 'Wetaca', nombre: 'Merluza con puré de boniato', kcal: 430, p: 38, c: 42, g: 10, precio: '~6.80€', nota: 'Bajo en grasa. Para definición o corte.' },
+  // ── Knoweats ───────────────────────────────────────────────────────────────
+  { servicio: 'Knoweats', nombre: 'Pollo tikka masala + arroz', kcal: 510, p: 45, c: 48, g: 11, precio: '~7.80€', nota: '40g proteína. Especialmente para deportistas.' },
+  { servicio: 'Knoweats', nombre: 'Bacalao con hummus y verduras', kcal: 440, p: 38, c: 32, g: 14, precio: '~7.50€', nota: 'Alto proteína con grasas saludables del hummus.' },
+  // ── Tappers/Caseros ────────────────────────────────────────────────────────
+  { servicio: 'Casero/Batch', nombre: 'Meal prep: pollo + arroz × 5', kcal: 530, p: 50, c: 55, g: 10, precio: '~2.50€/ud', nota: 'Cocina 1kg pechuga + 500g arroz en 30 min para toda la semana.' },
+  { servicio: 'Casero/Batch', nombre: 'Meal prep: atún + pasta × 4', kcal: 480, p: 44, c: 52, g: 8, precio: '~2.00€/ud', nota: '4 latas atún + 400g pasta integral. Rápido y económico.' },
+  { servicio: 'Casero/Batch', nombre: 'Meal prep: lentejas + verdura × 4', kcal: 420, p: 22, c: 56, g: 8, precio: '~1.80€/ud', nota: 'Legumbre completa. Rica en hierro y fibra.' },
+]
+
+// Grupos musculares fitcron → musculo del ejercicio
+export const MUSCULO_MAP = {
+  'Pecho': ['pecho', 'chest'],
+  'Espalda': ['espalda', 'dorsal', 'trapecio', 'back', 'lumbar', 'lats'],
+  'Hombros': ['hombro', 'deltoides', 'shoulder'],
+  'Bíceps': ['bíceps', 'biceps', 'braquial'],
+  'Tríceps': ['tríceps', 'triceps'],
+  'Pierna': ['cuádriceps', 'cuadriceps', 'isquio', 'gemelo', 'glúteo', 'gluteo', 'pierna', 'thigh', 'calf', 'leg', 'cadera'],
+  'Abdominales': ['core', 'abdomen', 'abdominal', 'oblicuo', 'waist'],
+  'Cardio': ['full body', 'cardio'],
+}
+
+export function matchMusculo(ejMusculo) {
+  const m = (ejMusculo || '').toLowerCase()
+  for (const [fitcronGrupo, keywords] of Object.entries(MUSCULO_MAP)) {
+    if (keywords.some(k => m.includes(k))) return fitcronGrupo
+  }
+  return null
 }
 
 export const AVATARS = ['💪', '🏃', '🧘', '🏋️', '⚡', '🦁', '🔥', '🌟']
