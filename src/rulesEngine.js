@@ -1,4 +1,23 @@
 // ─── MOTOR DE REGLAS DE ENTRENAMIENTO ────────────────────────────────────────
+
+// Normaliza etiquetas de músculo específicas a grupos principales para MEV/MRV
+const GRUPO_MUSCULAR = {
+  'Pecho': ['pecho', 'chest'],
+  'Espalda': ['espalda', 'dorsal', 'trapecio', 'back', 'lumbar', 'rotadores'],
+  'Hombros': ['hombro', 'deltoides', 'shoulder'],
+  'Bíceps': ['bíceps', 'biceps', 'braquial'],
+  'Tríceps': ['tríceps', 'triceps'],
+  'Pierna': ['cuádriceps', 'cuadriceps', 'isquio', 'gemelo', 'glúteo', 'gluteo', 'pierna', 'calf', 'leg'],
+  'Core': ['core', 'abdomen', 'abdominal', 'oblicuo'],
+}
+export function normalizarMusculo(label) {
+  if (!label) return 'Otros'
+  const l = label.toLowerCase()
+  for (const [grupo, keys] of Object.entries(GRUPO_MUSCULAR)) {
+    if (keys.some(k => l.includes(k))) return grupo
+  }
+  return 'Otros'
+}
 // Basado en:
 // - Renaissance Periodization (RP Strength) — MEV/MAV/MRV landmarks
 // - NIH PMC9302196 — Resistance training variables for hypertrophy
@@ -66,7 +85,7 @@ const PROGRESION = {
 const COMPUESTOS = ['Pecho', 'Espalda', 'Pierna', 'Hombros']
 
 // ── Función principal: genera todas las recomendaciones ───────────────────────
-export function generarRecomendaciones({ objetivo, nivel, semanasCiclo, registros, histPeso, actividades, DIAS }) {
+export function generarRecomendaciones({ objetivo, nivel, semanasCiclo, registros, histPeso, actividades, DIAS, seriesExtra }) {
   const obj = objetivo || 'recomposicion'
   const niv = nivel || 'intermedio'
   const params = PARAMS[obj]?.[niv] || PARAMS.recomposicion.intermedio
@@ -85,7 +104,7 @@ export function generarRecomendaciones({ objetivo, nivel, semanasCiclo, registro
   }
 
   // ── Análisis de volumen semanal por grupo muscular ───────────────────────────
-  const volumenMuscular = calcularVolumenMuscular(DIAS, registros)
+  const volumenMuscular = calcularVolumenMuscular(DIAS, registros, seriesExtra || {})
 
   // ── Alertas ──────────────────────────────────────────────────────────────────
   const alertas = generarAlertas({ semanasCiclo, params, volumenMuscular, vol, registros, DIAS, actividades, obj })
@@ -208,26 +227,52 @@ function detectarEstancamiento(historial, tipo) {
   return false
 }
 
-// ── Volumen por grupo muscular (series/semana últimas 2 semanas) ──────────────
-function calcularVolumenMuscular(DIAS, registros) {
+// ── Volumen por grupo muscular ────────────────────────────────────────────────
+// Usa el PLAN (series programadas) como base real; añade lo registrado si hay
+// datos suficientes (≥7 días de historial). Así las alertas reflejan la rutina
+// diseñada, no solo lo que el usuario ha registrado hasta ahora.
+function calcularVolumenMuscular(DIAS, registros, seriesExtra = {}) {
   if (!DIAS) return {}
+
+  // Volumen planificado (lo que dice la rutina, agrupado por grupo muscular principal)
+  const planificado = {}
+  for (const dia of DIAS) {
+    for (const ej of (dia.ejercicios || [])) {
+      const grupo = normalizarMusculo(ej.musculo)
+      // seriesExtra puede estar keyed por etiqueta específica o por grupo
+      const extra = seriesExtra[ej.musculo] || seriesExtra[grupo] || 0
+      planificado[grupo] = (planificado[grupo] || 0) + ej.series + extra
+    }
+  }
+
+  // Volumen registrado en últimas 2 semanas (también agrupado)
   const hoy = new Date()
   const hace14dias = new Date(hoy); hace14dias.setDate(hoy.getDate() - 14)
-
-  const resultado = {}
+  const registrado = {}
   for (const dia of DIAS) {
     for (const ej of (dia.ejercicios || [])) {
       if (!registros[ej.id]) continue
-      const musculo = ej.musculo || 'Otros'
+      const grupo = normalizarMusculo(ej.musculo)
       const series = Object.entries(registros[ej.id])
         .filter(([fecha]) => fechaADate(fecha) >= hace14dias)
         .reduce((sum, [, s]) => sum + Object.keys(s).length, 0)
-
-      resultado[musculo] = (resultado[musculo] || 0) + series
+      registrado[grupo] = (registrado[grupo] || 0) + series
     }
   }
-  // Normalizar a semana (dividir por 2 porque son 2 semanas)
-  return Object.fromEntries(Object.entries(resultado).map(([k, v]) => [k, Math.round(v / 2)]))
+
+  // Si hay suficientes datos reales (≥5 series registradas en algún músculo),
+  // promediamos plan + datos normalizados a semana; si no, usamos el plan.
+  const totalRegistrado = Object.values(registrado).reduce((a, b) => a + b, 0)
+  if (totalRegistrado >= 5) {
+    const normalizado = Object.fromEntries(Object.entries(registrado).map(([k, v]) => [k, Math.round(v / 2)]))
+    return Object.fromEntries(
+      Object.keys({ ...planificado, ...normalizado }).map(k => [
+        k, Math.max(planificado[k] || 0, normalizado[k] || 0)
+      ])
+    )
+  }
+
+  return planificado
 }
 
 // ── Ciclo recomendado según semanas + objetivo + volumen ──────────────────────

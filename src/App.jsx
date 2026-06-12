@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { CICLOS, PLATOS, PLATOS_PREPARADOS, AVATARS, getDiasCiclo, matchMusculo } from './data.js'
 import fitcronEjercicios from './fitcron_exercises.json'
 import { getProfiles, upsertProfile, deleteProfile, getUserData, saveUserData, getDieta, saveDieta } from './db.js'
-import { OBJETIVOS, NIVELES, generarRecomendaciones, calcularNutricionObjetivo } from './rulesEngine.js'
+import { OBJETIVOS, NIVELES, generarRecomendaciones, calcularNutricionObjetivo, normalizarMusculo } from './rulesEngine.js'
 
 // ─── ACTIVIDADES EXTRA ───────────────────────────────────────────────────────
 
@@ -457,12 +457,51 @@ export default function App() {
 
   // ── Aplicar correcciones desde alertas ───────────────────────────────────
   function aplicarCorreccionAlerta(alerta) {
-    aplicarTodasLasCorrecciones([alerta])
+    const niv = user?.nivel || 'intermedio'
+    const MEV = { principiante: 6, intermedio: 10, avanzado: 12 }[niv] || 10
+    const seriesBase = {}
+    DIAS.forEach(d => d.ejercicios.forEach(ej => {
+      seriesBase[ej.musculo] = (seriesBase[ej.musculo] || 0) + ej.series
+    }))
+    if (alerta.tipo === 'deload') {
+      updateUser({ cicloActual: 'deload', cicloSemanaInicio: getWeekKey() })
+    } else if (alerta.tipo === 'plateau' && alerta.ejId) {
+      const grupo = matchMusculo(alerta.ejMusculo || '')
+      const candidatos = fitcronEjercicios.filter(e => e.musculo === grupo && e.gif)
+      if (candidatos.length > 0) {
+        const alt = candidatos[Math.floor(Math.random() * candidatos.length)]
+        setUd({ ...ud, alternativasActivas: { ...alternativasActivas, [alerta.ejId]: alt } })
+      }
+    } else if (alerta.tipo === 'volumen_bajo' && alerta.musculo) {
+      // seriesBase está agrupado por grupo muscular normalizado
+      const seriesBaseGrupo = {}
+      DIAS.forEach(d => d.ejercicios.forEach(ej => {
+        const g = normalizarMusculo(ej.musculo)
+        seriesBaseGrupo[g] = (seriesBaseGrupo[g] || 0) + ej.series
+      }))
+      const base = seriesBaseGrupo[alerta.musculo] || 0
+      const extra = Math.min(Math.max(0, MEV - base), 4)
+      if (extra > 0) {
+        setUd({ ...ud, seriesExtra: { ...(ud.seriesExtra || {}), [alerta.musculo]: extra } })
+      }
+    }
   }
   function aplicarTodasLasCorrecciones(listaAlertas) {
+    const obj = user?.objetivo || 'recomposicion'
+    const niv = user?.nivel || 'intermedio'
+    // Límites por nivel (MRV = máximo recuperable por semana por músculo)
+    const MRV = { principiante: 16, intermedio: 20, avanzado: 22 }[niv] || 20
+    // Calcular cuántas series planificadas hay por músculo en la rutina base
+    const seriesBase = {}
+    DIAS.forEach(d => d.ejercicios.forEach(ej => {
+      seriesBase[ej.musculo] = (seriesBase[ej.musculo] || 0) + ej.series
+    }))
+
     let nuevasAlts = { ...alternativasActivas }
-    let nuevoExtra = { ...(ud.seriesExtra || {}) }
+    // RESET: no acumular — recalcular desde cero en cada aplicación
+    const nuevoExtra = {}
     let deload = false
+
     for (const alerta of listaAlertas) {
       if (alerta.tipo === 'deload') {
         deload = true
@@ -473,11 +512,18 @@ export default function App() {
           nuevasAlts[alerta.ejId] = candidatos[Math.floor(Math.random() * candidatos.length)]
         }
       } else if (alerta.tipo === 'volumen_bajo' && alerta.musculo) {
-        nuevoExtra[alerta.musculo] = (nuevoExtra[alerta.musculo] || 0) + 1
+        // Añadir series hasta llegar al MEV, sin superar MRV
+        const base = seriesBase[alerta.musculo] || 0
+        const MEV = { principiante: 6, intermedio: 10, avanzado: 12 }[niv] || 10
+        const extra = Math.min(Math.max(0, MEV - base), MRV - base, 4)
+        if (extra > 0) nuevoExtra[alerta.musculo] = extra
       }
     }
     setUd({ ...ud, alternativasActivas: nuevasAlts, seriesExtra: nuevoExtra })
     if (deload) updateUser({ cicloActual: 'deload', cicloSemanaInicio: getWeekKey() })
+  }
+  function resetearCorrecciones() {
+    setUd({ ...ud, seriesExtra: {}, alternativasActivas: {} })
   }
 
   // ── Motor de reglas (después de semanasCiclo) ─────────────────────────────
@@ -488,6 +534,7 @@ export default function App() {
     registros: ud.registros || {},
     histPeso: ud.histPeso || [],
     actividades: ud.actividades || [],
+    seriesExtra: ud.seriesExtra || {},
     DIAS,
   })
   const cicloCompletado = semanasCiclo >= cicloInfo.semanas
@@ -686,8 +733,9 @@ export default function App() {
               const open = ejAbierto === ej.id
               const altOpen = altAbierta === ej.id
               const altActiva = alternativasActivas[ej.id]
-              // Series efectivas = series del ciclo + extras añadidos por correcciones
-              const seriesExtra = (ud.seriesExtra || {})[ej.musculo] || 0
+              // Series efectivas = series del ciclo + extras (busca por etiqueta o grupo normalizado)
+              const grupoMuscular = normalizarMusculo(ej.musculo)
+              const seriesExtra = (ud.seriesExtra || {})[ej.musculo] || (ud.seriesExtra || {})[grupoMuscular] || 0
               const seriesEfectivas = ej.series + seriesExtra
               // El ejercicio a mostrar puede ser el original o una alternativa seleccionada
               const ejMostrado = altActiva ? { ...ej, nombre: altActiva.nombre, gif: altActiva.gif, musculo: altActiva.musculo } : ej
@@ -1108,17 +1156,48 @@ export default function App() {
                   {/* Alertas */}
                   {alertas.length > 0 && (
                     <div style={{ ...S.card, overflow: 'hidden', marginBottom: 10 }}>
-                      <div style={{ padding: '12px 16px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ padding: '12px 16px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
                         <span style={{ fontSize: 13, fontWeight: 700, color: '#8e8e93' }}>ALERTAS DE ENTRENAMIENTO</span>
-                        <button onClick={() => aplicarTodasLasCorrecciones(alertas)}
-                          style={{ padding: '5px 12px', borderRadius: 20, border: '1.5px solid #6366f1', background: '#eef2ff', color: '#6366f1', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
-                          ✅ Corregir todo
-                        </button>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          {Object.keys(ud.seriesExtra || {}).length > 0 && (
+                            <button onClick={resetearCorrecciones}
+                              style={{ padding: '5px 10px', borderRadius: 20, border: '1.5px solid #ef4444', background: '#fef2f2', color: '#ef4444', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+                              ✕ Reset
+                            </button>
+                          )}
+                          <button onClick={() => {
+                            // Preview antes de aplicar
+                            const niv = user?.nivel || 'intermedio'
+                            const MEV = { principiante: 6, intermedio: 10, avanzado: 12 }[niv] || 10
+                            const seriesBase = {}
+                            DIAS.forEach(d => d.ejercicios.forEach(ej => {
+                              seriesBase[ej.musculo] = (seriesBase[ej.musculo] || 0) + ej.series
+                            }))
+                            const cambios = alertas.filter(a => a.tipo === 'volumen_bajo').map(a => {
+                              const base = seriesBase[a.musculo] || 0
+                              const extra = Math.min(Math.max(0, MEV - base), 4)
+                              return extra > 0 ? `${a.musculo}: +${extra} series` : null
+                            }).filter(Boolean)
+                            const msg = [
+                              alertas.some(a => a.tipo === 'deload') ? '⚡ Activar semana de deload' : null,
+                              alertas.some(a => a.tipo === 'plateau') ? '🔄 Cambiar ejercicio(s) estancados' : null,
+                              ...cambios
+                            ].filter(Boolean).join('\n')
+                            if (msg && window.confirm(`Aplicar correcciones:\n\n${msg}\n\n¿Continuar?`)) {
+                              aplicarTodasLasCorrecciones(alertas)
+                            } else if (!msg) {
+                              aplicarTodasLasCorrecciones(alertas)
+                            }
+                          }}
+                            style={{ padding: '5px 12px', borderRadius: 20, border: '1.5px solid #6366f1', background: '#eef2ff', color: '#6366f1', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                            ✅ Corregir todo
+                          </button>
+                        </div>
                       </div>
                       {alertas.map((a, i) => {
                         const color = a.prioridad === 'alta' ? '#ef4444' : a.prioridad === 'media' ? '#f97316' : '#6366f1'
                         const bg = a.prioridad === 'alta' ? '#fef2f2' : a.prioridad === 'media' ? '#fff7ed' : '#eef2ff'
-                        const btnLabel = a.tipo === 'deload' ? '⚡ Activar deload ahora' : a.tipo === 'plateau' ? '🔄 Cambiar ejercicio automáticamente' : a.tipo === 'volumen_bajo' ? '➕ Añadir serie a este músculo' : null
+                        const btnLabel = a.tipo === 'deload' ? '⚡ Activar deload ahora' : a.tipo === 'plateau' ? '🔄 Cambiar ejercicio' : a.tipo === 'volumen_bajo' ? '➕ Añadir series' : null
                         return (
                           <div key={i} style={{ padding: '12px 16px', borderTop: '1px solid #f2f2f7', background: bg }}>
                             <div style={{ fontSize: 13, fontWeight: 700, color }}>{a.titulo}</div>
