@@ -2,12 +2,33 @@ import { supabase } from './supabase.js'
 
 // ─── PERFILES ────────────────────────────────────────────────────────────────
 
+function rowToProfile(row) {
+  return {
+    id: row.id,
+    nombre: row.nombre,
+    avatar: row.avatar,
+    cicloActual: row.ciclo_actual || 'hiper',
+    cicloSemanaInicio: row.ciclo_semana_inicio || null,
+  }
+}
+
+function profileToRow(profile) {
+  return {
+    id: profile.id,
+    nombre: profile.nombre,
+    avatar: profile.avatar,
+    ciclo_actual: profile.cicloActual || 'hiper',
+    ciclo_semana_inicio: profile.cicloSemanaInicio || null,
+  }
+}
+
 export async function getProfiles() {
   if (!supabase) return JSON.parse(localStorage.getItem('rg_users') || '[]')
   const { data, error } = await supabase.from('rg_profiles').select('*').order('created_at')
   if (error) return JSON.parse(localStorage.getItem('rg_users') || '[]')
-  localStorage.setItem('rg_users', JSON.stringify(data))
-  return data
+  const profiles = data.map(rowToProfile)
+  localStorage.setItem('rg_users', JSON.stringify(profiles))
+  return profiles
 }
 
 export async function upsertProfile(profile) {
@@ -17,7 +38,7 @@ export async function upsertProfile(profile) {
     : [...users, profile]
   localStorage.setItem('rg_users', JSON.stringify(updated))
   if (!supabase) return
-  await supabase.from('rg_profiles').upsert({ ...profile, updated_at: new Date().toISOString() })
+  await supabase.from('rg_profiles').upsert(profileToRow(profile))
 }
 
 export async function deleteProfile(id) {
