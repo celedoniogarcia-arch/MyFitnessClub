@@ -39,10 +39,32 @@ export const NIVELES = [
 
 // ── Volumen semanal por grupo muscular (series/semana) ────────────────────────
 // Fuente: RP Strength + NIH review (≥10 sets/muscle/week para maximizar hipertrofia)
+// Mantener para compatibilidad con lógica de nivel (escala global)
 const VOL = {
   principiante: { mev: 6,  mav: 12, mrv: 16 },
   intermedio:   { mev: 10, mav: 16, mrv: 20 },
   avanzado:     { mev: 12, mav: 18, mrv: 22 },
+}
+
+// ── MEV / MAV / MRV por grupo muscular — RP Strength 2024 ─────────────────────
+// Más precisos que el volumen global: cada músculo tiene diferente capacidad de recuperación
+// Fuente: rpstrength.com/blogs/articles/training-volume-landmarks-muscle-growth
+const VOL_MUSCULO = {
+  Pierna:   { mev: 8,  mav: 15, mrv: 22 },  // cuádriceps + isquio + glúteos juntos
+  Espalda:  { mev: 8,  mav: 17, mrv: 25 },
+  Pecho:    { mev: 8,  mav: 15, mrv: 22 },
+  Hombros:  { mev: 6,  mav: 15, mrv: 20 },
+  Bíceps:   { mev: 4,  mav: 11, mrv: 20 },
+  Tríceps:  { mev: 4,  mav: 12, mrv: 18 },
+  Core:     { mev: 4,  mav: 10, mrv: 16 },
+  Otros:    { mev: 4,  mav: 10, mrv: 16 },
+}
+
+// Para mujeres: glúteos necesitan volumen extra (MEV más alto, MAV más amplio)
+// Fuente: Gluteus Maximus Hypertrophy systematic review — PMC12018462
+const VOL_MUSCULO_MUJER = {
+  ...VOL_MUSCULO,
+  Pierna: { mev: 10, mav: 16, mrv: 22 },  // +2 sets MEV por prioridad glúteo-isquio
 }
 
 // ── Parámetros de entrenamiento por objetivo × nivel ─────────────────────────
@@ -85,7 +107,7 @@ const PROGRESION = {
 const COMPUESTOS = ['Pecho', 'Espalda', 'Pierna', 'Hombros']
 
 // ── Función principal: genera todas las recomendaciones ───────────────────────
-export function generarRecomendaciones({ objetivo, nivel, semanasCiclo, registros, histPeso, actividades, DIAS, seriesExtra, perfilFisico }) {
+export function generarRecomendaciones({ objetivo, nivel, semanasCiclo, registros, histPeso, actividades, DIAS, seriesExtra, perfilFisico, sexo }) {
   const obj = objetivo || 'recomposicion'
   const niv = nivel || 'intermedio'
   const params = PARAMS[obj]?.[niv] || PARAMS.recomposicion.intermedio
@@ -107,7 +129,8 @@ export function generarRecomendaciones({ objetivo, nivel, semanasCiclo, registro
   const volumenMuscular = calcularVolumenMuscular(DIAS, registros, seriesExtra || {})
 
   // ── Alertas ──────────────────────────────────────────────────────────────────
-  const alertas = generarAlertas({ semanasCiclo, params, volumenMuscular, vol, registros, DIAS, actividades, obj, perfilFisico })
+  const esMujer = ['mujer', 'femenino', 'f'].includes((sexo || perfilFisico?.sexo || '').toLowerCase())
+  const alertas = generarAlertas({ semanasCiclo, params, volumenMuscular, vol, registros, DIAS, actividades, obj, perfilFisico, esMujer })
 
   // ── Ciclo recomendado ────────────────────────────────────────────────────────
   const cicloRecomendado = calcularCicloRecomendado({ semanasCiclo, params, obj, niv, volumenMuscular, vol })
@@ -304,7 +327,7 @@ function calcularCicloRecomendado({ semanasCiclo, params, obj, niv, volumenMuscu
 }
 
 // ── Generar alertas de entrenamiento ─────────────────────────────────────────
-function generarAlertas({ semanasCiclo, params, volumenMuscular, vol, registros, DIAS, actividades, obj, perfilFisico }) {
+function generarAlertas({ semanasCiclo, params, volumenMuscular, vol, registros, DIAS, actividades, obj, perfilFisico, esMujer }) {
   const alertas = []
 
   // Alertas por perfil físico (edad / IMC)
@@ -377,15 +400,46 @@ function generarAlertas({ semanasCiclo, params, volumenMuscular, vol, registros,
     }
   }
 
-  // Alerta volumen bajo por grupo muscular
+  // Alerta volumen bajo/alto por grupo muscular — usa MEV/MRV por músculo (RP Strength 2024)
+  const volRef = esMujer ? VOL_MUSCULO_MUJER : VOL_MUSCULO
   for (const [musculo, series] of Object.entries(volumenMuscular)) {
-    if (series < vol.mev) {
+    const ref = volRef[musculo] || volRef.Otros
+
+    if (series < ref.mev) {
       alertas.push({
         tipo: 'volumen_bajo',
         prioridad: 'baja',
         musculo,
+        mev: ref.mev,
+        mrv: ref.mrv,
         titulo: `📉 Poco volumen: ${musculo}`,
-        desc: `Solo ${series} series/sem (mínimo efectivo: ${vol.mev}). Añade 1-2 series o un ejercicio extra.`,
+        desc: `${series} series/sem — por debajo del mínimo efectivo (MEV ${ref.mev}). Añade 1-2 series o un ejercicio accesorio.`,
+      })
+    } else if (series > ref.mrv) {
+      alertas.push({
+        tipo: 'volumen_alto',
+        prioridad: 'alta',
+        musculo,
+        mrv: ref.mrv,
+        titulo: `🔴 Exceso de volumen: ${musculo}`,
+        desc: `${series} series/sem supera el MRV (${ref.mrv}). Reduce 1-2 series para evitar sobreentrenamiento y mejorar recuperación.`,
+      })
+    }
+  }
+
+  // Alerta específica para mujeres con poco volumen de glúteos
+  if (esMujer) {
+    const seriesPierna = volumenMuscular['Pierna'] || 0
+    const refPierna = VOL_MUSCULO_MUJER.Pierna
+    if (seriesPierna < refPierna.mev && !alertas.some(a => a.tipo === 'volumen_bajo' && a.musculo === 'Pierna')) {
+      alertas.push({
+        tipo: 'volumen_bajo',
+        prioridad: 'media',
+        musculo: 'Pierna',
+        mev: refPierna.mev,
+        mrv: refPierna.mrv,
+        titulo: '🍑 Volumen de glúteos/isquios insuficiente',
+        desc: `Para mujeres, el MEV de pierna/glúteos es ${refPierna.mev} series/sem (tienes ${seriesPierna}). Añade hip thrust, RDL o abducción para maximizar resultados (fuente: PMC12018462).`,
       })
     }
   }

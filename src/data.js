@@ -904,17 +904,47 @@ export function calcularPerfilFisico(datosUsuario = {}) {
   return { zonaEdad, zonaBmi, bmi, edad: e, pesoKg: p, alturaCm: h, sexo, tieneDatos }
 }
 
+// ── Helper: ajusta rango de reps desplazando mín y máx ───────────────────────
+function modificarReps(repsStr, delta) {
+  if (!repsStr || typeof repsStr !== 'string' || repsStr.includes('deload')) return repsStr
+  const sep = repsStr.includes('–') ? '–' : repsStr.includes('-') ? '-' : null
+  if (sep) {
+    const [min, max] = repsStr.split(sep).map(s => Number(s.trim()))
+    if (isNaN(min) || isNaN(max)) return repsStr
+    return `${Math.max(1, min + delta)}${sep}${Math.max(min + delta + 1, max + delta)}`
+  }
+  const n = Number(repsStr)
+  return isNaN(n) ? repsStr : String(Math.max(1, n + delta))
+}
+
+// Músculos de predominio posterior/glúteo (mujeres deben priorizar)
+const MUSCULOS_GLUTEO = ['glúte', 'glute', 'isquio', 'cuádri', 'cuadri', 'pierna', 'calf', 'gemelo', 'abducto']
+function esMusculoGluteo(musculo = '') {
+  const m = musculo.toLowerCase()
+  return MUSCULOS_GLUTEO.some(k => m.includes(k))
+}
+
 // ── Adapta la rutina a los datos físicos del usuario ─────────────────────────
-// Devuelve los días modificados con:
-//   · Ejercicios de alto riesgo sustituidos por alternativas más seguras
-//   · Cardio ajustado a la FCmax segura para la edad/IMC
-//   · Tips enriquecidos con pautas específicas de la zona
+// Fuentes: ACSM 2026 Position Stand, RP Strength Volume Landmarks,
+//          NSCA Women's Training Guidelines, NIH PMC8878739
+//
+// Reglas aplicadas:
+//   Sexo F   → énfasis glúteos/posterior (MEV glúteos = 4, MAV = 8-16 sets/sem)
+//              recuperación entre series más rápida (60-90s vs 90-120s hombres)
+//   40-49    → 65-80% 1RM, descanso 90s en compuestos, calentamiento específico
+//   50-59    → sustituye barbell, 60-75% 1RM, incrementos de carga 2.5%
+//   60-69    → RIR≥3, sin fallo absoluto, 6-10 sets/músculo/sem
+//   70+      → 50-70% 1RM, 12-20 reps (mayor rango), 4-8 sets/músculo/sem, 72-96h recuperación
+//   IMC≥30   → máquinas preferidas, sin saltos, cardio bajo impacto
+//   IMC≥35   → ejercicios sentados/apoyados, cardio solo bici/remo
 export function adaptarDiasAlPerfil(dias, datosUsuario = {}) {
   const perfil = calcularPerfilFisico(datosUsuario)
-  const { zonaEdad, zonaBmi, tieneDatos } = perfil
+  const { zonaEdad, zonaBmi, tieneDatos, sexo } = perfil
 
   if (!tieneDatos) return dias  // Sin datos físicos no se adapta
 
+  const esMujer     = ['mujer', 'femenino', 'f'].includes((sexo || '').toLowerCase())
+  const esAdulto    = zonaEdad === 'adulto'
   const esMaduro    = ['maduro', 'senior', 'senior_plus'].includes(zonaEdad)
   const esSenior    = ['senior', 'senior_plus'].includes(zonaEdad)
   const esSeniorPlus = zonaEdad === 'senior_plus'
@@ -924,32 +954,51 @@ export function adaptarDiasAlPerfil(dias, datosUsuario = {}) {
   return dias.map(dia => ({
     ...dia,
     cardio: adaptarCardio(dia.cardio, zonaEdad, zonaBmi),
-    _perfil: { zonaEdad, zonaBmi },
+    _perfil: { zonaEdad, zonaBmi, esMujer },
     ejercicios: dia.ejercicios.map(ej => {
       // 1. Sustituir ejercicios de alta carga axial/articular cuando procede
       if (debesSustituir && EJ_SUSTITUTOS[ej.id]) {
         const sust = EJ_SUSTITUTOS[ej.id]
+        // 70+: además incrementa el rango de reps hacia zona de mayor control (12-20)
+        const repsAdaptadas = esSeniorPlus ? modificarReps(sust.reps, 3) : sust.reps
         return {
           ...sust,
           series: ej.series,
-          reps: ej.reps,
-          _sustituido: ej.nombre,  // para mostrar badge en UI
+          reps: repsAdaptadas,
+          _sustituido: ej.nombre,
         }
       }
 
-      // 2. Enriquecer el tip con pautas de la zona de edad
-      let tipExtra = ''
+      // 2. Construir tip extra según perfil de edad y sexo
+      const partes = []
+
       if (esSeniorPlus) {
-        tipExtra = ' · 70+: usa el 50-60% de tu carga máxima. Prioriza control total. Descansa 2 min entre series.'
+        partes.push('70+: usa el 50-70% de tu carga máxima (12-20 reps). Control total del movimiento. Descansa 2-3 min. Recuperación: 72-96h por grupo.')
       } else if (esSenior) {
-        tipExtra = ' · 60+: RIR≥3 (nunca al fallo). Descanso 90-120 s. Calentamiento articular de 10 min previo.'
+        partes.push('60+: RIR≥3 (nunca al fallo). Máx 6-10 series/músculo/sem. Descanso 90-120 s. Calentamiento articular 10 min.')
       } else if (esMaduro) {
-        tipExtra = ' · 50+: calienta 8-10 min antes de cargar. RIR≥2. Si hay dolor articular, usa alternativas.'
-      } else if (altoPeso) {
-        tipExtra = ' · IMC elevado: prioriza la técnica sobre la carga. Descansa 90 s entre series.'
+        partes.push('50+: 60-75% 1RM. Sube carga de 2.5% (no 5%). Calienta 8-10 min. RIR≥2. Si hay dolor articular, usa alternativas.')
+      } else if (esAdulto) {
+        partes.push('40+: 65-80% 1RM. Descansa 90 s en compuestos. Calentamiento específico de articulaciones.')
       }
 
-      return tipExtra ? { ...ej, tip: ej.tip + tipExtra } : ej
+      if (altoPeso && !esMaduro) {
+        partes.push('IMC elevado: prioriza técnica sobre carga. Descansa 90 s. Progresa solo cuando completes todas las reps cómodamente 2 sesiones seguidas.')
+      }
+
+      if (esMujer) {
+        if (esMusculoGluteo(ej.musculo)) {
+          partes.push('Mujer: contrae glúteos en el punto de máxima tensión. Añade hip thrust o abducción si el tiempo lo permite (MEV glúteos = 4-8 series/sem).')
+        } else {
+          partes.push('Mujer: recuperas entre series más rápido (60-90 s es suficiente). Puedes añadir 1-2 series extra si lo notas asequible.')
+        }
+      }
+
+      // 3. Para 70+: subir rango de reps al rango ACSM 2026 (12-20) en todos los ejercicios
+      const repsFinales = esSeniorPlus ? modificarReps(ej.reps, 3) : ej.reps
+
+      const ejBase = repsFinales !== ej.reps ? { ...ej, reps: repsFinales } : ej
+      return partes.length > 0 ? { ...ejBase, tip: ej.tip + ' · ' + partes.join(' · ') } : ejBase
     }),
   }))
 }

@@ -598,8 +598,9 @@ export default function App() {
   }
 
   // ── Helpers de corrección ─────────────────────────────────────────────────
-  // Máximo de series por ejercicio individual (RP: 4-5 sets/ej para hipertrofia)
-  const MAX_SERIES_POR_EJ = 5
+  // Máximo de series por ejercicio individual — ACSM 2026 + RP Strength: 4 sets/ej
+  // Más allá de 4 sets el estímulo por set decrece significativamente; añadir nuevo ejercicio es mejor
+  const MAX_SERIES_POR_EJ = 4
 
   function calcularSeriesBaseGrupo() {
     const base = {}
@@ -641,10 +642,27 @@ export default function App() {
     } else if (alerta.tipo === 'volumen_bajo' && alerta.musculo) {
       const baseGrupo = calcularSeriesBaseGrupo()
       const base = baseGrupo[alerta.musculo] || 0
-      const extraSemanal = Math.min(Math.max(0, MEV - base), MRV - base)
+      const mev = alerta.mev || MEV
+      const mrv = alerta.mrv || MRV
+      const extraSemanal = Math.min(Math.max(0, mev - base), mrv - base)
       const extraPorEj = calcularExtraSeguro(alerta.musculo, extraSemanal)
       if (extraPorEj > 0) {
         setUd({ ...ud, seriesExtra: { ...(ud.seriesExtra || {}), [alerta.musculo]: extraPorEj } })
+      } else {
+        // Todos los ejercicios ya están al tope (4 sets): sugerir nuevo ejercicio accesorio
+        const grupo = alerta.musculo
+        const candidatos = fitcronEjercicios.filter(e => normalizarMusculo(e.musculo) === grupo && e.gif)
+        if (candidatos.length > 0) {
+          const sugerido = candidatos[Math.floor(Math.random() * candidatos.length)]
+          const sugeridos = { ...(ud.ejerciciosSugeridos || {}), [grupo]: sugerido }
+          setUd({ ...ud, ejerciciosSugeridos: sugeridos })
+        }
+      }
+    } else if (alerta.tipo === 'volumen_alto' && alerta.musculo) {
+      // Reducir 1 serie extra si la hay, o notificar al usuario
+      const seriesExtraActual = ud.seriesExtra || {}
+      if (seriesExtraActual[alerta.musculo] > 0) {
+        setUd({ ...ud, seriesExtra: { ...seriesExtraActual, [alerta.musculo]: Math.max(0, (seriesExtraActual[alerta.musculo] || 0) - 1) } })
       }
     }
   }
@@ -655,7 +673,8 @@ export default function App() {
     const MRV = { principiante: 16, intermedio: 20, avanzado: 22 }[niv] || 20
     const baseGrupo = calcularSeriesBaseGrupo()
     let nuevasAlts = { ...alternativasActivas }
-    const nuevoExtra = {} // RESET — siempre recalcula desde cero
+    const nuevoExtra = {}
+    const nuevosEjSugeridos = {}
     let deload = false
     for (const alerta of listaAlertas) {
       if (alerta.tipo === 'deload') {
@@ -667,17 +686,29 @@ export default function App() {
           nuevasAlts[alerta.ejId] = candidatos[Math.floor(Math.random() * candidatos.length)]
       } else if (alerta.tipo === 'volumen_bajo' && alerta.musculo) {
         const base = baseGrupo[alerta.musculo] || 0
-        const extraSemanal = Math.min(Math.max(0, MEV - base), MRV - base)
+        const mev = alerta.mev || MEV
+        const mrv = alerta.mrv || MRV
+        const extraSemanal = Math.min(Math.max(0, mev - base), mrv - base)
         const extraPorEj = calcularExtraSeguro(alerta.musculo, extraSemanal)
-        if (extraPorEj > 0) nuevoExtra[alerta.musculo] = extraPorEj
+        if (extraPorEj > 0) {
+          nuevoExtra[alerta.musculo] = extraPorEj
+        } else {
+          // Al tope de series: sugerir ejercicio accesorio
+          const candidatos = fitcronEjercicios.filter(e => normalizarMusculo(e.musculo) === alerta.musculo && e.gif)
+          if (candidatos.length > 0) {
+            nuevosEjSugeridos[alerta.musculo] = candidatos[Math.floor(Math.random() * candidatos.length)]
+          }
+        }
+      } else if (alerta.tipo === 'volumen_alto' && alerta.musculo) {
+        if (nuevoExtra[alerta.musculo] > 0) nuevoExtra[alerta.musculo] = Math.max(0, nuevoExtra[alerta.musculo] - 1)
       }
     }
-    setUd({ ...ud, alternativasActivas: nuevasAlts, seriesExtra: nuevoExtra })
+    setUd({ ...ud, alternativasActivas: nuevasAlts, seriesExtra: nuevoExtra, ejerciciosSugeridos: { ...(ud.ejerciciosSugeridos || {}), ...nuevosEjSugeridos } })
     if (deload) updateUser({ cicloActual: 'deload', cicloSemanaInicio: getWeekKey() })
   }
 
   function resetearCorrecciones() {
-    setUd({ ...ud, seriesExtra: {}, alternativasActivas: {} })
+    setUd({ ...ud, seriesExtra: {}, alternativasActivas: {}, ejerciciosSugeridos: {} })
   }
 
   // ── Motor de reglas (después de semanasCiclo) ─────────────────────────────
@@ -691,7 +722,8 @@ export default function App() {
     seriesExtra: ud.seriesExtra || {},
     DIAS,
     perfilFisico: calcularPerfilFisico(dietaData || {}),
-  }), [user?.objetivo, user?.nivel, semanasCiclo, ud.registros, ud.histPeso, ud.actividades, ud.seriesExtra, DIAS, dietaData?.edad, dietaData?.pesoActual, dietaData?.altura])
+    sexo: dietaData?.sexo || null,
+  }), [user?.objetivo, user?.nivel, semanasCiclo, ud.registros, ud.histPeso, ud.actividades, ud.seriesExtra, DIAS, dietaData?.edad, dietaData?.pesoActual, dietaData?.altura, dietaData?.sexo])
   const cicloCompletado = semanasCiclo >= cicloInfo.semanas
   function cambiarCiclo(id) { updateUser({ cicloActual: id, cicloSemanaInicio: getWeekKey() }); setMostrarCiclos(false); setEjAbierto(null) }
 
@@ -1079,6 +1111,30 @@ export default function App() {
                 </div>
               )
             })}
+
+            {/* Ejercicios sugeridos por corrección de alertas (cuando ejercicios existentes ya tienen 4 series) */}
+            {!esFinde && Object.entries(ud.ejerciciosSugeridos || {}).map(([grupo, ej]) => ej && (
+              <div key={`sug-${grupo}`} style={{ ...S.card, border: '2px dashed #6366f1', background: '#eef2ff', marginBottom: 8 }}>
+                <div style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div style={{ width: 34, height: 34, borderRadius: 10, background: '#e0e7ff', color: '#6366f1', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>+</div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#6366f1', marginBottom: 2 }}>EJERCICIO SUGERIDO · {grupo}</div>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: '#1c1c1e' }}>{ej.nombre || ej.name}</div>
+                    <div style={{ fontSize: 12, color: '#8e8e93', marginTop: 1 }}>{ej.musculo || ej.muscle} · 3 series · 10-15 reps</div>
+                    <div style={{ fontSize: 10, color: '#6366f1', marginTop: 3 }}>
+                      Los ejercicios existentes ya tienen 4 series (tope óptimo). Este ejercicio añade ángulo nuevo al mismo grupo muscular.
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      const nuevos = { ...(ud.ejerciciosSugeridos || {}) }
+                      delete nuevos[grupo]
+                      setUd({ ...ud, ejerciciosSugeridos: nuevos })
+                    }}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: '#c7c7cc', padding: '4px 6px' }}>✕</button>
+                </div>
+              </div>
+            ))}
           </>
         )}
 
