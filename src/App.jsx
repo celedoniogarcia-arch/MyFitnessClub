@@ -597,39 +597,8 @@ export default function App() {
     setUd({ ...ud, alternativasActivas: nuevas })
   }
 
-  // ── Helpers de corrección ─────────────────────────────────────────────────
-  // Máximo de series por ejercicio individual — ACSM 2026 + RP Strength: 4 sets/ej
-  // Más allá de 4 sets el estímulo por set decrece significativamente; añadir nuevo ejercicio es mejor
-  const MAX_SERIES_POR_EJ = 4
-
-  function calcularSeriesBaseGrupo() {
-    const base = {}
-    DIAS.forEach(d => d.ejercicios.forEach(ej => {
-      const g = normalizarMusculo(ej.musculo)
-      base[g] = (base[g] || 0) + ej.series
-    }))
-    return base
-  }
-
-  // Calcula cuántas series extra (por ejercicio) pueden añadirse sin superar 5 por ejercicio.
-  // Divide el déficit semanal entre el número de ocurrencias del músculo en la rutina.
-  function calcularExtraSeguro(grupo, extraSemanal) {
-    // Ejercicios de ese grupo en todo el plan
-    const ejerciciosGrupo = DIAS.flatMap(d =>
-      d.ejercicios.filter(ej => normalizarMusculo(ej.musculo) === grupo)
-    )
-    if (ejerciciosGrupo.length === 0) return 0
-    // Extra por ejercicio: dividir el déficit semanal entre las ocurrencias
-    const extraPorEj = Math.ceil(extraSemanal / ejerciciosGrupo.length)
-    // Cap: ningún ejercicio puede superar MAX_SERIES_POR_EJ
-    const maxBase = Math.max(...ejerciciosGrupo.map(e => e.series))
-    return Math.min(extraPorEj, MAX_SERIES_POR_EJ - maxBase)
-  }
-
+  // ── Aplicar correcciones de alertas ──────────────────────────────────────
   function aplicarCorreccionAlerta(alerta) {
-    const niv = user?.nivel || 'intermedio'
-    const MEV = { principiante: 6, intermedio: 10, avanzado: 12 }[niv] || 10
-    const MRV = { principiante: 16, intermedio: 20, avanzado: 22 }[niv] || 20
     if (alerta.tipo === 'deload') {
       updateUser({ cicloActual: 'deload', cicloSemanaInicio: getWeekKey() })
     } else if (alerta.tipo === 'plateau' && alerta.ejId) {
@@ -639,76 +608,7 @@ export default function App() {
         const alt = candidatos[Math.floor(Math.random() * candidatos.length)]
         setUd({ ...ud, alternativasActivas: { ...alternativasActivas, [alerta.ejId]: alt } })
       }
-    } else if (alerta.tipo === 'volumen_bajo' && alerta.musculo) {
-      const baseGrupo = calcularSeriesBaseGrupo()
-      const base = baseGrupo[alerta.musculo] || 0
-      const mev = alerta.mev || MEV
-      const mrv = alerta.mrv || MRV
-      const extraSemanal = Math.min(Math.max(0, mev - base), mrv - base)
-      const extraPorEj = calcularExtraSeguro(alerta.musculo, extraSemanal)
-      if (extraPorEj > 0) {
-        setUd({ ...ud, seriesExtra: { ...(ud.seriesExtra || {}), [alerta.musculo]: extraPorEj } })
-      } else {
-        // Todos los ejercicios ya están al tope (4 sets): sugerir nuevo ejercicio accesorio
-        const grupo = alerta.musculo
-        const candidatos = fitcronEjercicios.filter(e => normalizarMusculo(e.musculo) === grupo && e.gif)
-        if (candidatos.length > 0) {
-          const sugerido = candidatos[Math.floor(Math.random() * candidatos.length)]
-          const sugeridos = { ...(ud.ejerciciosSugeridos || {}), [grupo]: sugerido }
-          setUd({ ...ud, ejerciciosSugeridos: sugeridos })
-        }
-      }
-    } else if (alerta.tipo === 'volumen_alto' && alerta.musculo) {
-      // Reducir 1 serie extra si la hay, o notificar al usuario
-      const seriesExtraActual = ud.seriesExtra || {}
-      if (seriesExtraActual[alerta.musculo] > 0) {
-        setUd({ ...ud, seriesExtra: { ...seriesExtraActual, [alerta.musculo]: Math.max(0, (seriesExtraActual[alerta.musculo] || 0) - 1) } })
-      }
     }
-  }
-
-  function aplicarTodasLasCorrecciones(listaAlertas) {
-    const niv = user?.nivel || 'intermedio'
-    const MEV = { principiante: 6, intermedio: 10, avanzado: 12 }[niv] || 10
-    const MRV = { principiante: 16, intermedio: 20, avanzado: 22 }[niv] || 20
-    const baseGrupo = calcularSeriesBaseGrupo()
-    let nuevasAlts = { ...alternativasActivas }
-    const nuevoExtra = {}
-    const nuevosEjSugeridos = {}
-    let deload = false
-    for (const alerta of listaAlertas) {
-      if (alerta.tipo === 'deload') {
-        deload = true
-      } else if (alerta.tipo === 'plateau' && alerta.ejId) {
-        const grupo = matchMusculo(alerta.ejMusculo || '')
-        const candidatos = fitcronEjercicios.filter(e => e.musculo === grupo && e.gif)
-        if (candidatos.length > 0)
-          nuevasAlts[alerta.ejId] = candidatos[Math.floor(Math.random() * candidatos.length)]
-      } else if (alerta.tipo === 'volumen_bajo' && alerta.musculo) {
-        const base = baseGrupo[alerta.musculo] || 0
-        const mev = alerta.mev || MEV
-        const mrv = alerta.mrv || MRV
-        const extraSemanal = Math.min(Math.max(0, mev - base), mrv - base)
-        const extraPorEj = calcularExtraSeguro(alerta.musculo, extraSemanal)
-        if (extraPorEj > 0) {
-          nuevoExtra[alerta.musculo] = extraPorEj
-        } else {
-          // Al tope de series: sugerir ejercicio accesorio
-          const candidatos = fitcronEjercicios.filter(e => normalizarMusculo(e.musculo) === alerta.musculo && e.gif)
-          if (candidatos.length > 0) {
-            nuevosEjSugeridos[alerta.musculo] = candidatos[Math.floor(Math.random() * candidatos.length)]
-          }
-        }
-      } else if (alerta.tipo === 'volumen_alto' && alerta.musculo) {
-        if (nuevoExtra[alerta.musculo] > 0) nuevoExtra[alerta.musculo] = Math.max(0, nuevoExtra[alerta.musculo] - 1)
-      }
-    }
-    setUd({ ...ud, alternativasActivas: nuevasAlts, seriesExtra: nuevoExtra, ejerciciosSugeridos: { ...(ud.ejerciciosSugeridos || {}), ...nuevosEjSugeridos } })
-    if (deload) updateUser({ cicloActual: 'deload', cicloSemanaInicio: getWeekKey() })
-  }
-
-  function resetearCorrecciones() {
-    setUd({ ...ud, seriesExtra: {}, alternativasActivas: {}, ejerciciosSugeridos: {} })
   }
 
   // ── Motor de reglas (después de semanasCiclo) ─────────────────────────────
@@ -719,11 +619,10 @@ export default function App() {
     registros: ud.registros || {},
     histPeso: ud.histPeso || [],
     actividades: ud.actividades || [],
-    seriesExtra: ud.seriesExtra || {},
     DIAS,
     perfilFisico: calcularPerfilFisico(dietaData || {}),
     sexo: dietaData?.sexo || null,
-  }), [user?.objetivo, user?.nivel, semanasCiclo, ud.registros, ud.histPeso, ud.actividades, ud.seriesExtra, DIAS, dietaData?.edad, dietaData?.pesoActual, dietaData?.altura, dietaData?.sexo])
+  }), [user?.objetivo, user?.nivel, semanasCiclo, ud.registros, ud.histPeso, ud.actividades, DIAS, dietaData?.edad, dietaData?.pesoActual, dietaData?.altura, dietaData?.sexo])
   const cicloCompletado = semanasCiclo >= cicloInfo.semanas
   function cambiarCiclo(id) { updateUser({ cicloActual: id, cicloSemanaInicio: getWeekKey() }); setMostrarCiclos(false); setEjAbierto(null) }
 
@@ -959,10 +858,8 @@ export default function App() {
               const open = ejAbierto === ej.id
               const altOpen = altAbierta === ej.id
               const altActiva = alternativasActivas[ej.id]
-              // Series efectivas = series del ciclo + extras (busca por etiqueta o grupo normalizado)
               const grupoMuscular = normalizarMusculo(ej.musculo)
-              const seriesExtra = (ud.seriesExtra || {})[ej.musculo] || (ud.seriesExtra || {})[grupoMuscular] || 0
-              const seriesEfectivas = Math.min(ej.series + seriesExtra, MAX_SERIES_POR_EJ)
+              const seriesEfectivas = ej.series
               // El ejercicio a mostrar puede ser el original o una alternativa seleccionada
               const ejMostrado = altActiva ? { ...ej, nombre: altActiva.nombre, gif: altActiva.gif, musculo: altActiva.musculo } : ej
               const max = getMaxValor(ej.id, ej.tipo)
@@ -1006,7 +903,7 @@ export default function App() {
                       </div>
 
                       <div style={{ background: cicloInfo.bg, borderRadius: 10, padding: '10px 12px', marginBottom: 14 }}>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: cicloInfo.color, marginBottom: 3 }}>{cicloInfo.nombre}: {seriesEfectivas} series × {ej.tipo === 'tiempo' ? `${ej.reps} seg` : ej.reps}{seriesExtra > 0 ? ` (+${seriesExtra} extra)` : ''}</div>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: cicloInfo.color, marginBottom: 3 }}>{cicloInfo.nombre}: {seriesEfectivas} series × {ej.tipo === 'tiempo' ? `${ej.reps} seg` : ej.reps}</div>
                         <div style={{ fontSize: 12, color: '#3c3c43', lineHeight: 1.4 }}>{ej.tip}</div>
                         {esDeload && <div style={{ fontSize: 11, color: '#f59e0b', marginTop: 4, fontWeight: 600 }}>⚡ Deload: usa ~50% de tu peso habitual</div>}
                       </div>
@@ -1112,29 +1009,6 @@ export default function App() {
               )
             })}
 
-            {/* Ejercicios sugeridos por corrección de alertas (cuando ejercicios existentes ya tienen 4 series) */}
-            {!esFinde && Object.entries(ud.ejerciciosSugeridos || {}).map(([grupo, ej]) => ej && (
-              <div key={`sug-${grupo}`} style={{ ...S.card, border: '2px dashed #6366f1', background: '#eef2ff', marginBottom: 8 }}>
-                <div style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <div style={{ width: 34, height: 34, borderRadius: 10, background: '#e0e7ff', color: '#6366f1', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>+</div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: '#6366f1', marginBottom: 2 }}>EJERCICIO SUGERIDO · {grupo}</div>
-                    <div style={{ fontSize: 15, fontWeight: 700, color: '#1c1c1e' }}>{ej.nombre || ej.name}</div>
-                    <div style={{ fontSize: 12, color: '#8e8e93', marginTop: 1 }}>{ej.musculo || ej.muscle} · 3 series · 10-15 reps</div>
-                    <div style={{ fontSize: 10, color: '#6366f1', marginTop: 3 }}>
-                      Los ejercicios existentes ya tienen 4 series (tope óptimo). Este ejercicio añade ángulo nuevo al mismo grupo muscular.
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => {
-                      const nuevos = { ...(ud.ejerciciosSugeridos || {}) }
-                      delete nuevos[grupo]
-                      setUd({ ...ud, ejerciciosSugeridos: nuevos })
-                    }}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: '#c7c7cc', padding: '4px 6px' }}>✕</button>
-                </div>
-              </div>
-            ))}
           </>
         )}
 
@@ -1418,7 +1292,7 @@ export default function App() {
             {(() => {
               const objInfo = OBJETIVOS.find(o => o.id === (user?.objetivo || 'recomposicion'))
               const nivInfo = NIVELES.find(n => n.id === (user?.nivel || 'intermedio'))
-              const { params, vol, alertas, cicloRecomendado, volumenMuscular } = reglas
+              const { params, vol, alertas, progresos, cicloRecomendado, volumenMuscular } = reglas
               const cicloRec = CICLOS.find(c => c.id === cicloRecomendado?.id)
 
               return (
@@ -1539,51 +1413,56 @@ export default function App() {
                     </div>
                   )}
 
-                  {/* Alertas */}
+                  {/* ── PROGRESO: lo que el usuario está listo para mejorar ─── */}
+                  {progresos && progresos.length > 0 && (
+                    <div style={{ ...S.card, overflow: 'hidden', marginBottom: 10 }}>
+                      <div style={{ padding: '12px 16px 8px' }}>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: '#8e8e93' }}>TU PROGRESO</span>
+                      </div>
+                      {progresos.map((p, i) => (
+                        <div key={i} style={{ padding: '12px 16px', borderTop: '1px solid #f2f2f7', background: p.tipo === 'subir_nivel' ? '#fffbeb' : '#f0fdf4' }}>
+                          <div style={{ fontSize: 14, fontWeight: 800, color: p.tipo === 'subir_nivel' ? '#d97706' : '#10b981' }}>{p.titulo}</div>
+                          {p.tipo === 'subir_carga' && (
+                            <>
+                              <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                {p.ejercicios.map(ej => (
+                                  <div key={ej.ejId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#dcfce7', borderRadius: 8, padding: '6px 10px' }}>
+                                    <span style={{ fontSize: 13, fontWeight: 600, color: '#166534' }}>{ej.ejNombre}</span>
+                                    <span style={{ fontSize: 12, color: '#15803d', fontWeight: 700 }}>{ej.mensaje}</span>
+                                  </div>
+                                ))}
+                              </div>
+                              <div style={{ fontSize: 11, color: '#6b7280', marginTop: 8 }}>
+                                Los pesos sugeridos aparecen en cada ejercicio del entreno. Apúntalos y súbelos en la próxima sesión.
+                              </div>
+                            </>
+                          )}
+                          {p.tipo === 'subir_nivel' && (
+                            <>
+                              <div style={{ fontSize: 12, color: '#92400e', marginTop: 4, lineHeight: 1.5 }}>{p.desc}</div>
+                              <button
+                                onClick={() => updateUser({ nivel: p.siguienteNivel })}
+                                style={{ marginTop: 10, padding: '8px 16px', borderRadius: 10, background: '#d97706', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: 13 }}>
+                                Subir a nivel {p.siguienteNivel === 'intermedio' ? 'Intermedio' : 'Avanzado'} →
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* ── AVISOS: solo sobre comportamiento del usuario ────────── */}
                   {alertas.length > 0 && (
                     <div style={{ ...S.card, overflow: 'hidden', marginBottom: 10 }}>
-                      <div style={{ padding: '12px 16px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
-                        <span style={{ fontSize: 13, fontWeight: 700, color: '#8e8e93' }}>ALERTAS DE ENTRENAMIENTO</span>
-                        <div style={{ display: 'flex', gap: 6 }}>
-                          {Object.keys(ud.seriesExtra || {}).length > 0 && (
-                            <button onClick={resetearCorrecciones}
-                              style={{ padding: '5px 10px', borderRadius: 20, border: '1.5px solid #ef4444', background: '#fef2f2', color: '#ef4444', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
-                              ✕ Reset
-                            </button>
-                          )}
-                          <button onClick={() => {
-                            // Preview antes de aplicar
-                            const niv = user?.nivel || 'intermedio'
-                            const MEV = { principiante: 6, intermedio: 10, avanzado: 12 }[niv] || 10
-                            const seriesBase = {}
-                            DIAS.forEach(d => d.ejercicios.forEach(ej => {
-                              seriesBase[ej.musculo] = (seriesBase[ej.musculo] || 0) + ej.series
-                            }))
-                            const cambios = alertas.filter(a => a.tipo === 'volumen_bajo').map(a => {
-                              const base = seriesBase[a.musculo] || 0
-                              const extra = Math.min(Math.max(0, MEV - base), 4)
-                              return extra > 0 ? `${a.musculo}: +${extra} series` : null
-                            }).filter(Boolean)
-                            const msg = [
-                              alertas.some(a => a.tipo === 'deload') ? '⚡ Activar semana de deload' : null,
-                              alertas.some(a => a.tipo === 'plateau') ? '🔄 Cambiar ejercicio(s) estancados' : null,
-                              ...cambios
-                            ].filter(Boolean).join('\n')
-                            if (msg && window.confirm(`Aplicar correcciones:\n\n${msg}\n\n¿Continuar?`)) {
-                              aplicarTodasLasCorrecciones(alertas)
-                            } else if (!msg) {
-                              aplicarTodasLasCorrecciones(alertas)
-                            }
-                          }}
-                            style={{ padding: '5px 12px', borderRadius: 20, border: '1.5px solid #6366f1', background: '#eef2ff', color: '#6366f1', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
-                            ✅ Corregir todo
-                          </button>
-                        </div>
+                      <div style={{ padding: '12px 16px 8px' }}>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: '#8e8e93' }}>AVISOS</span>
                       </div>
                       {alertas.map((a, i) => {
-                        const color = a.prioridad === 'alta' ? '#ef4444' : a.prioridad === 'media' ? '#f97316' : '#6366f1'
-                        const bg = a.prioridad === 'alta' ? '#fef2f2' : a.prioridad === 'media' ? '#fff7ed' : '#eef2ff'
-                        const btnLabel = a.tipo === 'deload' ? '⚡ Activar deload ahora' : a.tipo === 'plateau' ? '🔄 Cambiar ejercicio' : a.tipo === 'volumen_bajo' ? '➕ Añadir series' : null
+                        const esInfo = a.prioridad === 'info'
+                        const color = esInfo ? '#6366f1' : a.prioridad === 'alta' ? '#ef4444' : '#f97316'
+                        const bg = esInfo ? '#f5f5ff' : a.prioridad === 'alta' ? '#fef2f2' : '#fff7ed'
+                        const btnLabel = a.tipo === 'deload' ? '⚡ Activar deload ahora' : a.tipo === 'plateau' ? '🔄 Cambiar ejercicio' : null
                         return (
                           <div key={i} style={{ padding: '12px 16px', borderTop: '1px solid #f2f2f7', background: bg }}>
                             <div style={{ fontSize: 13, fontWeight: 700, color }}>{a.titulo}</div>
@@ -1597,34 +1476,6 @@ export default function App() {
                           </div>
                         )
                       })}
-                    </div>
-                  )}
-
-                  {/* Volumen semanal por músculo */}
-                  {Object.keys(volumenMuscular).length > 0 && (
-                    <div style={{ ...S.card, padding: 16, marginBottom: 10 }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: '#8e8e93', marginBottom: 12 }}>VOLUMEN SEMANAL POR MÚSCULO</div>
-                      <div style={{ fontSize: 11, color: '#8e8e93', marginBottom: 10 }}>
-                        MEV {vol.mev} · MAV {vol.mav} · MRV {vol.mrv} series/sem
-                      </div>
-                      {Object.entries(volumenMuscular).map(([musculo, series]) => {
-                        const pct = Math.min((series / vol.mrv) * 100, 100)
-                        const color = series < vol.mev ? '#ef4444' : series > vol.mrv ? '#f97316' : series >= vol.mav ? '#10b981' : '#6366f1'
-                        return (
-                          <div key={musculo} style={{ marginBottom: 10 }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                              <span style={{ fontSize: 12, fontWeight: 600 }}>{musculo}</span>
-                              <span style={{ fontSize: 12, fontWeight: 700, color }}>{series} series/sem</span>
-                            </div>
-                            <div style={{ height: 6, borderRadius: 3, background: '#f2f2f7' }}>
-                              <div style={{ height: 6, borderRadius: 3, background: color, width: `${pct}%`, transition: 'width .3s' }} />
-                            </div>
-                          </div>
-                        )
-                      })}
-                      <div style={{ fontSize: 10, color: '#8e8e93', marginTop: 8, lineHeight: 1.5 }}>
-                        🔴 Bajo MEV · 🟣 En rango efectivo · 🟢 En MAV (óptimo) · 🟠 Sobre MRV (recupera)
-                      </div>
                     </div>
                   )}
                 </div>

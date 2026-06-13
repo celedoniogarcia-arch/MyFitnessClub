@@ -125,12 +125,14 @@ export function generarRecomendaciones({ objetivo, nivel, semanasCiclo, registro
     }
   }
 
-  // ── Análisis de volumen semanal por grupo muscular ───────────────────────────
-  const volumenMuscular = calcularVolumenMuscular(DIAS, registros, seriesExtra || {})
+  // ── Análisis de volumen semanal (solo informativo, no genera alertas) ─────────
+  const volumenMuscular = calcularVolumenMuscular(DIAS, registros, {})
 
-  // ── Alertas ──────────────────────────────────────────────────────────────────
-  const esMujer = ['mujer', 'femenino', 'f'].includes((sexo || perfilFisico?.sexo || '').toLowerCase())
-  const alertas = generarAlertas({ semanasCiclo, params, volumenMuscular, vol, registros, DIAS, actividades, obj, perfilFisico, esMujer })
+  // ── Alertas (solo sobre comportamiento del usuario, no sobre el diseño) ────────
+  const alertas = generarAlertas({ semanasCiclo, params, registros, DIAS, actividades, obj, perfilFisico })
+
+  // ── Progresos — lo que el usuario está listo para mejorar ──────────────────
+  const progresos = generarProgresos({ recomendaciones, nivel: niv, registros, DIAS })
 
   // ── Ciclo recomendado ────────────────────────────────────────────────────────
   const cicloRecomendado = calcularCicloRecomendado({ semanasCiclo, params, obj, niv, volumenMuscular, vol })
@@ -142,6 +144,7 @@ export function generarRecomendaciones({ objetivo, nivel, semanasCiclo, registro
     recomendaciones,
     volumenMuscular,
     alertas,
+    progresos,
     cicloRecomendado,
   }
 }
@@ -326,60 +329,53 @@ function calcularCicloRecomendado({ semanasCiclo, params, obj, niv, volumenMuscu
   return { id: params.ciclo, razon: `Ciclo óptimo para tu objetivo de ${obj}.` }
 }
 
-// ── Generar alertas de entrenamiento ─────────────────────────────────────────
-function generarAlertas({ semanasCiclo, params, volumenMuscular, vol, registros, DIAS, actividades, obj, perfilFisico, esMujer }) {
+// ── Alertas basadas en comportamiento del usuario (NO sobre el diseño de la rutina) ──
+// La rutina ya está diseñada correctamente. Las alertas son solo sobre lo que el usuario hace.
+function generarAlertas({ semanasCiclo, params, registros, DIAS, actividades, obj, perfilFisico }) {
   const alertas = []
 
-  // Alertas por perfil físico (edad / IMC)
+  // Info: adaptaciones aplicadas al perfil (informativo, no un problema)
   if (perfilFisico?.tieneDatos) {
     const { zonaEdad, zonaBmi, bmi, edad } = perfilFisico
-
     if (zonaEdad === 'senior_plus') {
-      alertas.push({
-        tipo: 'perfil_edad', prioridad: 'alta',
+      alertas.push({ tipo: 'perfil_edad', prioridad: 'info',
         titulo: '🦴 Rutina adaptada para 70+ años',
-        desc: `Con ${edad} años, tu rutina usa cargas del 50-60% 1RM, sin ejercicios de alto impacto y con énfasis en control del movimiento (ACSM). Los ejercicios de barra han sido sustituidos por alternativas más seguras.`,
+        desc: `Con ${edad} años, tu rutina usa cargas del 50-70% 1RM, reps en zona 12-20 y ejercicios sin carga axial espinal (ACSM 2026).`,
       })
     } else if (zonaEdad === 'senior') {
-      alertas.push({
-        tipo: 'perfil_edad', prioridad: 'alta',
+      alertas.push({ tipo: 'perfil_edad', prioridad: 'info',
         titulo: '🦴 Rutina adaptada para 60-69 años',
-        desc: `Con ${edad} años, tus ejercicios de barra han sido reemplazados por mancuernas y máquinas para reducir la carga articular. RIR mínimo 3 en todos los ejercicios (ACSM + RP Strength).`,
+        desc: `Los ejercicios con barra han sido sustituidos por mancuernas y máquinas. RIR≥3 en todos los ejercicios (ACSM + RP Strength).`,
       })
     } else if (zonaEdad === 'maduro') {
-      alertas.push({
-        tipo: 'perfil_edad', prioridad: 'media',
-        titulo: '⚠️ Rutina adaptada para 50-59 años',
-        desc: `Con ${edad} años, los ejercicios de barbell de alta carga axial han sido sustituidos por alternativas con mancuernas o máquinas. Calienta 10 min antes de cada sesión.`,
+      alertas.push({ tipo: 'perfil_edad', prioridad: 'info',
+        titulo: 'ℹ️ Rutina adaptada para 50-59 años',
+        desc: `Ejercicios de alta carga axial sustituidos. Incrementos de carga al 2.5% (no 5%). Calienta 10 min antes de cada sesión.`,
       })
     }
-
     if (zonaBmi === 'obeso2') {
-      alertas.push({
-        tipo: 'perfil_bmi', prioridad: 'alta',
-        titulo: '⚖️ Cardio adaptado por IMC (IMC ' + bmi + ')',
-        desc: 'Con IMC ≥35, el cardio de alto impacto (HIIT, saltos) ha sido sustituido por cardio de bajo impacto: bicicleta, remo o elíptica. Protege tus articulaciones (ACSM Obesity Position Stand).',
+      alertas.push({ tipo: 'perfil_bmi', prioridad: 'info',
+        titulo: `⚖️ Cardio adaptado (IMC ${bmi})`,
+        desc: 'Cardio de alto impacto sustituido por bicicleta, remo o elíptica para proteger articulaciones (ACSM).',
       })
     } else if (zonaBmi === 'obeso1') {
-      alertas.push({
-        tipo: 'perfil_bmi', prioridad: 'media',
-        titulo: '⚖️ Rutina adaptada por IMC (IMC ' + bmi + ')',
-        desc: 'Con IMC ≥30, la intensidad del cardio se ha reducido y se priorizan ejercicios con menor impacto articular.',
+      alertas.push({ tipo: 'perfil_bmi', prioridad: 'info',
+        titulo: `⚖️ Rutina adaptada (IMC ${bmi})`,
+        desc: 'Cardio de menor intensidad y preferencia por máquinas para menor impacto articular.',
       })
     }
   }
 
-  // Alerta deload
+  // Acción recomendada: semana de descarga (basado en semanas acumuladas)
   if (semanasCiclo >= params.deloadSemanas) {
     alertas.push({
-      tipo: 'deload',
-      prioridad: 'alta',
+      tipo: 'deload', prioridad: 'alta',
       titulo: '⚡ Semana de descarga recomendada',
-      desc: `Llevas ${semanasCiclo} sem. seguidas. Reduce 40-50% el volumen esta semana para evitar sobreentrenamiento y potenciar las ganancias.`,
+      desc: `Llevas ${semanasCiclo} semanas seguidas. Reduce el volumen esta semana para evitar sobreentrenamiento y potenciar las ganancias.`,
     })
   }
 
-  // Alerta ejercicios estancados
+  // Basado en datos registrados: estancamiento real en peso/reps
   if (DIAS && registros) {
     for (const dia of DIAS) {
       for (const ej of (dia.ejercicios || [])) {
@@ -387,64 +383,17 @@ function generarAlertas({ semanasCiclo, params, volumenMuscular, vol, registros,
         const hist = Object.entries(registros[ej.id] || {}).sort(([a], [b]) => fechaADate(a) - fechaADate(b))
         if (hist.length >= 3 && detectarEstancamiento(hist, ej.tipo)) {
           alertas.push({
-            tipo: 'plateau',
-            prioridad: 'media',
-            ejId: ej.id,
-            ejNombre: ej.nombre,
-            ejMusculo: ej.musculo,
-            titulo: `⚠️ Estancamiento: ${ej.nombre}`,
-            desc: `Sin progreso en las últimas 3 sesiones. Considera cambiar el ángulo, el ejercicio alternativo, o añadir una técnica de intensidad.`,
+            tipo: 'plateau', prioridad: 'media',
+            ejId: ej.id, ejNombre: ej.nombre, ejMusculo: ej.musculo,
+            titulo: `↔️ Estancamiento: ${ej.nombre}`,
+            desc: `Mismo peso las últimas 3 sesiones. Cambia el ángulo de ataque: prueba el ejercicio alternativo o varía el rango de reps.`,
           })
         }
       }
     }
   }
 
-  // Alerta volumen bajo/alto por grupo muscular — usa MEV/MRV por músculo (RP Strength 2024)
-  const volRef = esMujer ? VOL_MUSCULO_MUJER : VOL_MUSCULO
-  for (const [musculo, series] of Object.entries(volumenMuscular)) {
-    const ref = volRef[musculo] || volRef.Otros
-
-    if (series < ref.mev) {
-      alertas.push({
-        tipo: 'volumen_bajo',
-        prioridad: 'baja',
-        musculo,
-        mev: ref.mev,
-        mrv: ref.mrv,
-        titulo: `📉 Poco volumen: ${musculo}`,
-        desc: `${series} series/sem — por debajo del mínimo efectivo (MEV ${ref.mev}). Añade 1-2 series o un ejercicio accesorio.`,
-      })
-    } else if (series > ref.mrv) {
-      alertas.push({
-        tipo: 'volumen_alto',
-        prioridad: 'alta',
-        musculo,
-        mrv: ref.mrv,
-        titulo: `🔴 Exceso de volumen: ${musculo}`,
-        desc: `${series} series/sem supera el MRV (${ref.mrv}). Reduce 1-2 series para evitar sobreentrenamiento y mejorar recuperación.`,
-      })
-    }
-  }
-
-  // Alerta específica para mujeres con poco volumen de glúteos
-  if (esMujer) {
-    const seriesPierna = volumenMuscular['Pierna'] || 0
-    const refPierna = VOL_MUSCULO_MUJER.Pierna
-    if (seriesPierna < refPierna.mev && !alertas.some(a => a.tipo === 'volumen_bajo' && a.musculo === 'Pierna')) {
-      alertas.push({
-        tipo: 'volumen_bajo',
-        prioridad: 'media',
-        musculo: 'Pierna',
-        mev: refPierna.mev,
-        mrv: refPierna.mrv,
-        titulo: '🍑 Volumen de glúteos/isquios insuficiente',
-        desc: `Para mujeres, el MEV de pierna/glúteos es ${refPierna.mev} series/sem (tienes ${seriesPierna}). Añade hip thrust, RDL o abducción para maximizar resultados (fuente: PMC12018462).`,
-      })
-    }
-  }
-
-  // Alerta cardio bajo (objetivo perder grasa)
+  // Basado en comportamiento: cardio (solo si objetivo lo requiere)
   if (obj === 'perder' || obj === 'recomposicion') {
     const hoy = new Date()
     const hace7 = new Date(hoy); hace7.setDate(hoy.getDate() - 7)
@@ -452,18 +401,73 @@ function generarAlertas({ semanasCiclo, params, volumenMuscular, vol, registros,
       const d = fechaADate(a.fecha)
       return d >= hace7 && ['correr', 'bici', 'eliptica', 'nadar', 'caminar'].includes(a.tipo)
     }).length
-    const cardioRecomendado = params.cardioSemana
-    if (cardioSemana < cardioRecomendado) {
+    if (cardioSemana < params.cardioSemana) {
       alertas.push({
-        tipo: 'cardio_bajo',
-        prioridad: 'media',
-        titulo: `🏃 Cardio insuficiente esta semana`,
-        desc: `${cardioSemana}/${cardioRecomendado} sesiones de cardio. Para tu objetivo, añade ${cardioRecomendado - cardioSemana} sesión(es) más.`,
+        tipo: 'cardio_bajo', prioridad: 'media',
+        titulo: '🏃 Cardio esta semana',
+        desc: `${cardioSemana}/${params.cardioSemana} sesiones realizadas. Añade ${params.cardioSemana - cardioSemana} más para alcanzar tu objetivo.`,
       })
     }
   }
 
   return alertas
+}
+
+// ── Progresos del usuario — basados en datos reales registrados ───────────────
+// Dice al usuario qué está listo para mejorar, no qué está mal
+function generarProgresos({ recomendaciones, nivel, registros, DIAS }) {
+  const progresos = []
+  if (!recomendaciones || !DIAS) return progresos
+
+  // Ejercicios con evidencia real de que están listos para más carga
+  const listos = []
+  for (const dia of DIAS) {
+    for (const ej of (dia.ejercicios || [])) {
+      const rec = recomendaciones[ej.id]
+      if (rec?.estado === 'subir_peso') {
+        listos.push({ ejId: ej.id, ejNombre: ej.nombre, pesoSugerido: rec.pesoSugerido, mensaje: rec.mensaje })
+      }
+    }
+  }
+  if (listos.length > 0) {
+    progresos.push({
+      tipo: 'subir_carga',
+      titulo: `🏋️ ${listos.length} ejercicio${listos.length > 1 ? 's' : ''} listo${listos.length > 1 ? 's' : ''} para subir carga`,
+      desc: listos.map(l => l.ejNombre).join(' · '),
+      ejercicios: listos,
+    })
+  }
+
+  // Recomendación de subir de nivel cuando el progreso lo justifica
+  const subirNivel = detectarSubirNivel(recomendaciones, nivel, registros)
+  if (subirNivel) {
+    progresos.push({
+      tipo: 'subir_nivel',
+      titulo: '🏆 ¿Listo para el siguiente nivel?',
+      desc: `En ${subirNivel.sesiones} sesiones registradas, el ${subirNivel.pct}% de tus ejercicios están progresando consistentemente. Considera subir a nivel ${subirNivel.siguienteLabel}.`,
+      siguienteNivel: subirNivel.siguiente,
+    })
+  }
+
+  return progresos
+}
+
+function detectarSubirNivel(recomendaciones, nivel, registros) {
+  if (nivel === 'avanzado') return null
+  const vals = Object.values(recomendaciones || {})
+  if (vals.length < 4) return null
+  const listos = vals.filter(r => r.estado === 'subir_peso').length
+  const pct = Math.round(listos / vals.length * 100)
+  if (pct < 50) return null
+
+  // Contar sesiones únicas registradas como proxy de experiencia real
+  const fechas = new Set()
+  Object.values(registros || {}).forEach(ejReg => Object.keys(ejReg || {}).forEach(f => fechas.add(f)))
+  if (fechas.size < 15) return null
+
+  const siguiente = nivel === 'principiante' ? 'intermedio' : 'avanzado'
+  const siguienteLabel = nivel === 'principiante' ? 'Intermedio' : 'Avanzado'
+  return { siguiente, siguienteLabel, sesiones: fechas.size, pct }
 }
 
 // ── Generar plan de nutrición basado en objetivo ──────────────────────────────
