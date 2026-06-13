@@ -31,17 +31,16 @@ function getWeekKey(d = new Date()) {
   return `${d.getFullYear()}-W${String(week).padStart(2, '0')}`
 }
 
-function getSemanaActual() {
-  const hoy = new Date()
-  const dow = hoy.getDay()
-  const lunes = new Date(hoy)
-  lunes.setDate(hoy.getDate() - ((dow + 6) % 7))
-  return Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(lunes); d.setDate(lunes.getDate() + i); return d
-  })
-}
+// Mapeo índice JS (0=Dom) → ID de día en la plantilla
+const DOW_TO_ID = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado']
+const DIAS_SEMANA_LABEL = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb']
 
-const DIAS_SEMANA_LABEL = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
+function addDays(date, n) {
+  const d = new Date(date); d.setDate(d.getDate() + n); return d
+}
+function startOfDay(date) {
+  const d = new Date(date); d.setHours(0,0,0,0); return d
+}
 
 const S = {
   page: { maxWidth: 430, margin: '0 auto', minHeight: '100dvh', background: '#f5f5f7', paddingBottom: 84 },
@@ -257,8 +256,8 @@ export default function App() {
   const [userId, setUserId] = useState(null)
   const [udLoading, setUdLoading] = useState(false)
   const [tab, setTab] = useState('entreno')
-  const hoyDow = (() => { const d = new Date().getDay(); return d === 0 ? 6 : d - 1 })()
-  const [diaIdx, setDiaIdx] = useState(hoyDow)
+  const [selectedDate, setSelectedDate] = useState(() => startOfDay(new Date()))
+  const [calStart, setCalStart] = useState(() => startOfDay(new Date()))
   const [ejAbierto, setEjAbierto] = useState(null)
   const [altAbierta, setAltAbierta] = useState(null)
   const [mostrarPreparados, setMostrarPreparados] = useState(false)
@@ -397,8 +396,8 @@ export default function App() {
   const cicloActual = user?.cicloActual || 'hiper'
   const cicloInfo = CICLOS.find(c => c.id === cicloActual) || CICLOS[0]
   const DIAS = getDiasCiclo(cicloActual, user?.objetivo || 'recomposicion', user?.nivel || 'intermedio')
-  const esFinde = diaIdx >= 5
-  const dia = DIAS[Math.min(diaIdx, 4)]
+  const esFinde = selectedDate.getDay() === 0 || selectedDate.getDay() === 6
+  const dia = DIAS.find(d => d.id === DOW_TO_ID[selectedDate.getDay()]) || DIAS[0]
 
   function updateUser(fields) {
     const updated = users.map(u => u.id === userId ? { ...u, ...fields } : u)
@@ -727,27 +726,38 @@ export default function App() {
                 ))}
               </div>
             )}
-            {/* Calendario */}
+            {/* Calendario — hoy siempre a la izquierda, navegación prev/next */}
             {(() => {
-              const semana = getSemanaActual()
-              const hoy = new Date(); hoy.setHours(0,0,0,0)
+              const hoy = startOfDay(new Date())
+              const dias = Array.from({ length: 7 }, (_, i) => addDays(calStart, i))
+              const mesLabel = (() => {
+                const m0 = calStart.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })
+                const m6 = addDays(calStart, 6).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })
+                return m0 === m6 ? m0.replace(/^\w/, c => c.toUpperCase()) : `${calStart.toLocaleDateString('es-ES',{month:'short'})} – ${addDays(calStart,6).toLocaleDateString('es-ES',{month:'short', year:'numeric'})}`
+              })()
               return (
                 <div style={{ background: '#fff', borderRadius: 16, padding: '14px 12px', marginBottom: 12 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: '#1c1c1e', marginBottom: 12, paddingLeft: 2 }}>
-                    {hoy.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' }).replace(/^\w/, c => c.toUpperCase())}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                    <button onClick={() => setCalStart(d => addDays(d, -7))}
+                      style={{ border: 'none', background: '#f2f2f7', borderRadius: 8, width: 30, height: 30, fontSize: 16, cursor: 'pointer', display:'flex',alignItems:'center',justifyContent:'center' }}>‹</button>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#1c1c1e' }}>{mesLabel}</div>
+                    <button onClick={() => setCalStart(d => addDays(d, 7))}
+                      style={{ border: 'none', background: '#f2f2f7', borderRadius: 8, width: 30, height: 30, fontSize: 16, cursor: 'pointer', display:'flex',alignItems:'center',justifyContent:'center' }}>›</button>
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
-                    {semana.map((fecha, i) => {
-                      const esFinde = i >= 5
-                      const f = new Date(fecha); f.setHours(0,0,0,0)
-                      const esHoy = f.getTime() === hoy.getTime()
-                      const esActivo = !esFinde && diaIdx === i
+                    {dias.map((fecha, i) => {
+                      const dow = fecha.getDay()
+                      const esFindeSlot = dow === 0 || dow === 6
+                      const esHoy = fecha.getTime() === hoy.getTime()
+                      const esSeleccionado = fecha.getTime() === selectedDate.getTime()
+                      const diaPlantilla = DIAS.find(d => d.id === DOW_TO_ID[dow])
+                      const tieneEntreno = !esFindeSlot && !!diaPlantilla
                       return (
-                        <button key={i} onClick={() => { setDiaIdx(i); setEjAbierto(null); setAltAbierta(null) }}
-                          style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: '8px 4px', borderRadius: 12, border: 'none', cursor: 'pointer', background: esActivo ? (i >= 5 ? '#10b981' : cicloInfo.color) : esHoy ? cicloInfo.bg : 'transparent', transition: 'all .15s' }}>
-                          <span style={{ fontSize: 10, fontWeight: 600, color: esActivo ? '#fff' : '#8e8e93' }}>{DIAS_SEMANA_LABEL[i]}</span>
-                          <span style={{ fontSize: 17, fontWeight: 800, color: esActivo ? '#fff' : esHoy ? cicloInfo.color : '#1c1c1e' }}>{fecha.getDate()}</span>
-                          <span style={{ fontSize: 13, lineHeight: 1 }}>{i >= 5 ? '🏖️' : (esActivo || esHoy ? DIAS[i]?.emoji : '·')}</span>
+                        <button key={i} onClick={() => { setSelectedDate(fecha); setEjAbierto(null); setAltAbierta(null) }}
+                          style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: '8px 4px', borderRadius: 12, border: esHoy && !esSeleccionado ? `2px solid ${cicloInfo.color}` : '2px solid transparent', cursor: 'pointer', background: esSeleccionado ? cicloInfo.color : 'transparent', transition: 'all .15s' }}>
+                          <span style={{ fontSize: 10, fontWeight: 600, color: esSeleccionado ? '#fff' : '#8e8e93' }}>{DIAS_SEMANA_LABEL[dow]}</span>
+                          <span style={{ fontSize: 17, fontWeight: 800, color: esSeleccionado ? '#fff' : esHoy ? cicloInfo.color : '#1c1c1e' }}>{fecha.getDate()}</span>
+                          <span style={{ fontSize: 13, lineHeight: 1 }}>{esFindeSlot ? '🏖️' : tieneEntreno ? diaPlantilla.emoji : '·'}</span>
                         </button>
                       )
                     })}
@@ -758,11 +768,9 @@ export default function App() {
 
             {/* Banner día */}
             {(() => {
-              const semana = getSemanaActual()
-              const fecha = semana[diaIdx]
-              const f = new Date(fecha); f.setHours(0,0,0,0)
-              const hoy = new Date(); hoy.setHours(0,0,0,0)
-              const esHoy = f.getTime() === hoy.getTime()
+              const fecha = selectedDate
+              const hoy = startOfDay(new Date())
+              const esHoy = fecha.getTime() === hoy.getTime()
               const fechaStr = fecha.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })
               if (esFinde) return (
                 <div style={{ ...S.card, background: '#ecfdf5', marginBottom: 12 }}>
