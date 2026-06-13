@@ -3,6 +3,8 @@ import { CICLOS, PLATOS, PLATOS_PREPARADOS, AVATARS, getDiasCiclo, matchMusculo,
 import fitcronEjercicios from './fitcron_exercises.json'
 import { getProfiles, upsertProfile, deleteProfile, getUserData, saveUserData, getDieta, saveDieta } from './db.js'
 import { OBJETIVOS, NIVELES, generarRecomendaciones, calcularNutricionObjetivo, normalizarMusculo } from './rulesEngine.js'
+import { supabase, getSession, onAuthStateChange, signOut } from './supabase.js'
+import AuthScreen from './AuthScreen.jsx'
 
 // ─── ACTIVIDADES EXTRA ───────────────────────────────────────────────────────
 
@@ -116,7 +118,7 @@ function EjercicioInput({ ej, serie, valor, onChange, ultimoValor }) {
 
 // ─── PANTALLA USUARIOS ───────────────────────────────────────────────────────
 
-function PantallaUsuarios({ users, loading, onSelect, onCreate, onDelete }) {
+function PantallaUsuarios({ users, loading, onSelect, onCreate, onDelete, onSignOut }) {
   const [creando, setCreando] = useState(false)
   const [nombre, setNombre] = useState('')
   const [avatar, setAvatar] = useState('💪')
@@ -142,10 +144,16 @@ function PantallaUsuarios({ users, loading, onSelect, onCreate, onDelete }) {
 
   return (
     <div style={{ maxWidth: 430, margin: '0 auto', minHeight: '100dvh', background: '#f5f5f7', padding: '60px 20px 20px' }}>
-      <div style={{ textAlign: 'center', marginBottom: 32 }}>
+      <div style={{ textAlign: 'center', marginBottom: 32, position: 'relative' }}>
         <div style={{ fontSize: 52 }}>🏋️</div>
         <div style={{ fontSize: 26, fontWeight: 800, color: '#1c1c1e', marginTop: 12 }}>RutinaGym</div>
         <div style={{ fontSize: 14, color: '#8e8e93', marginTop: 6 }}>¿Quién entrena hoy?</div>
+        {onSignOut && (
+          <button onClick={onSignOut}
+            style={{ position: 'absolute', top: 0, right: 0, background: 'none', border: 'none', fontSize: 12, color: '#8e8e93', cursor: 'pointer', padding: '6px 10px' }}>
+            Salir →
+          </button>
+        )}
       </div>
 
       {loading ? (
@@ -271,13 +279,24 @@ export default function App() {
   const [actividadModal, setActividadModal] = useState(false)
   const [actForm, setActForm] = useState({ tipo: 'correr', minutos: '', km: '' })
   const [revisionBanner, setRevisionBanner] = useState(null)
+  // null = cargando, false = no hay sesión, objeto = sesión activa
+  const [authSession, setAuthSession] = useState(null)
   const saveTimer = useRef(null)
   const dietaTimer = useRef(null)
 
-  // Cargar perfiles al inicio
+  // ── Auth: detectar sesión al arrancar y escuchar cambios ─────────────────
   useEffect(() => {
-    getProfiles().then(p => { setUsers(p); setUsersLoading(false) })
+    if (!supabase) { setAuthSession(false); return } // sin Supabase → modo offline
+    getSession().then(s => setAuthSession(s || false))
+    const { data: { subscription } } = onAuthStateChange(s => setAuthSession(s || false))
+    return () => subscription.unsubscribe()
   }, [])
+
+  // Cargar perfiles al inicio (solo cuando hay sesión o modo offline)
+  useEffect(() => {
+    if (authSession === null) return // aún cargando auth
+    getProfiles().then(p => { setUsers(p); setUsersLoading(false) })
+  }, [authSession])
 
   // Cargar datos del usuario al seleccionar
   useEffect(() => {
@@ -658,6 +677,14 @@ export default function App() {
   const cicloCompletado = semanasCiclo >= cicloInfo.semanas
   function cambiarCiclo(id) { updateUser({ cicloActual: id, cicloSemanaInicio: getWeekKey() }); setMostrarCiclos(false); setEjAbierto(null) }
 
+  // Auth: pantalla de login (solo si Supabase está configurado y no hay sesión)
+  if (authSession === null) return (
+    <div style={{ maxWidth: 430, margin: '0 auto', minHeight: '100dvh', background: '#f5f5f7', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ fontSize: 48 }}>⏳</div>
+    </div>
+  )
+  if (authSession === false && supabase) return <AuthScreen />
+
   // Pantalla de usuarios
   if (!userId) return (
     <PantallaUsuarios
@@ -671,6 +698,7 @@ export default function App() {
         setUsers(prev => prev.filter(u => u.id !== id))
         await deleteProfile(id)
       }}
+      onSignOut={supabase ? signOut : null}
     />
   )
 
