@@ -190,6 +190,10 @@ function calcularSugerenciaEjercicio(ej, registros, prog, params) {
     const ultimoPeso = Number(ultimaSesion?.s1) || 0
     if (!ultimoPeso) return { ...sinDatos, mensaje: null }
 
+    // Con una sola sesión no hay referencia suficiente para saber si el peso es adecuado
+    if (historialRaw.length < 2) {
+      return { pesoSugerido: ultimoPeso, estado: 'mantener', mensaje: `Peso registrado: ${ultimoPeso}kg. Registra otra sesión para saber cuándo subir.`, historialReciente }
+    }
     const estancado = historialRaw.length >= 3 && detectarEstancamiento(historialRaw, 'kg')
     if (estancado) {
       return { pesoSugerido: ultimoPeso, estado: 'estancado', mensaje: `Sin progreso reciente. Intenta ${ultimoPeso}kg con mejor técnica.`, historialReciente }
@@ -402,10 +406,13 @@ function generarAlertas({ semanasCiclo, params, registros, DIAS, actividades, ob
       return d >= hace7 && ['correr', 'bici', 'eliptica', 'nadar', 'caminar'].includes(a.tipo)
     }).length
     if (cardioSemana < params.cardioSemana) {
+      const faltan = params.cardioSemana - cardioSemana
       alertas.push({
         tipo: 'cardio_bajo', prioridad: 'media',
         titulo: '🏃 Cardio esta semana',
-        desc: `${cardioSemana}/${params.cardioSemana} sesiones realizadas. Añade ${params.cardioSemana - cardioSemana} más para alcanzar tu objetivo.`,
+        desc: cardioSemana === 0
+          ? `Tu objetivo es ${params.cardioSemana} sesiones de cardio esta semana (correr, bici, nadar…). Regístralas en la pestaña Entreno.`
+          : `Llevas ${cardioSemana} de ${params.cardioSemana} sesiones de cardio esta semana. Te faltan ${faltan}.`,
       })
     }
   }

@@ -648,7 +648,9 @@ export default function App() {
         setUserId(u.id); setTab('entreno')
       }}
       onCreate={async u => {
-        const conAuth = authSession?.user ? { ...u, authUserId: authSession.user.id } : u
+        // Solo vincular al auth user si no hay ya un perfil vinculado — evita que perfiles de prueba roben el auto-login
+        const yaVinculado = users.some(p => p.authUserId === authSession?.user?.id)
+        const conAuth = (!yaVinculado && authSession?.user) ? { ...u, authUserId: authSession.user.id } : u
         setUsers(prev => [...prev, conAuth])
         await upsertProfile(conAuth)
       }}
@@ -1468,8 +1470,8 @@ export default function App() {
                           </div>
                         )}
 
-                        {/* Pocas sesiones: mostrar barra de progreso hacia primer análisis */}
-                        {pocasDatos && (
+                        {/* Pocas sesiones y sin progresos aún: barra hacia primer análisis */}
+                        {pocasDatos && (!progresos || progresos.length === 0) && (
                           <div style={{ padding: '12px 16px', borderTop: '1px solid #f2f2f7' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
                               <span style={{ fontSize: 12, fontWeight: 600, color: '#1c1c1e' }}>Hacia el primer análisis</span>
@@ -1482,7 +1484,7 @@ export default function App() {
                           </div>
                         )}
 
-                        {/* Con suficientes datos: progresos reales */}
+                        {/* Progresos reales (aparecen en cuanto hay datos, sin esperar las 3 sesiones) */}
                         {progresos && progresos.map((p, i) => (
                           <div key={i} style={{ padding: '12px 16px', borderTop: '1px solid #f2f2f7', background: p.tipo === 'subir_nivel' ? '#fffbeb' : '#f0fdf4' }}>
                             <div style={{ fontSize: 14, fontWeight: 800, color: p.tipo === 'subir_nivel' ? '#d97706' : '#10b981' }}>{p.titulo}</div>
