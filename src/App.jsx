@@ -490,7 +490,10 @@ export default function App() {
   const histPeso = ud.histPeso || []
   function addPeso() {
     if (!pesoInput) return
-    setUd({ ...ud, histPeso: [...histPeso, { fecha: new Date().toLocaleDateString('es-ES'), peso: Number(pesoInput), semana: getWeekKey() }] })
+    const nuevoPeso = Number(pesoInput)
+    setUd({ ...ud, histPeso: [...histPeso, { fecha: new Date().toLocaleDateString('es-ES'), peso: nuevoPeso, semana: getWeekKey() }] })
+    // Sincronizar con pesoActual en Datos para que la nutrición use el peso real
+    setDietaUser({ ...dietaData, pesoActual: String(nuevoPeso) })
     setPesoInput('')
   }
 
