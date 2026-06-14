@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { CICLOS, PLATOS, PLATOS_PREPARADOS, AVATARS, getDiasCiclo, matchMusculo, getPlatosByObjetivo, adaptarDiasAlPerfil, calcularPerfilFisico } from './data.js'
-import fitcronEjercicios from './fitcron_exercises.json'
+import fitcronEjercicios from './fitcron_exercises_local.json'
 import { getProfiles, upsertProfile, deleteProfile, getUserData, saveUserData, getDieta, saveDieta } from './db.js'
 import { OBJETIVOS, NIVELES, generarRecomendaciones, calcularNutricionObjetivo, normalizarMusculo } from './rulesEngine.js'
 import { supabase, getSession, onAuthStateChange, signOut } from './supabase.js'
@@ -390,7 +390,12 @@ export default function App() {
             const grupo = matchMusculo(ej.musculo)
             const candidatos = fitcronEjercicios.filter(e => e.musculo === grupo && e.gif)
             if (candidatos.length > 0) {
-              nuevasAlts[ej.id] = candidatos[Math.floor(Math.random() * candidatos.length)]
+              const ejFitcron = fitcronEjercicios.find(e => e.slug === ej.id)
+              const zona = ejFitcron?.zona || null
+              const pool = zona
+                ? (candidatos.filter(e => e.zona === zona).length > 0 ? candidatos.filter(e => e.zona === zona) : candidatos)
+                : candidatos
+              nuevasAlts[ej.id] = pool[Math.floor(Math.random() * pool.length)]
               cambios.push(`🔄 ${ej.nombre}: cambiado por estancamiento`)
             }
           }
@@ -585,13 +590,22 @@ export default function App() {
 
   // ── Alternativas de fitcron ───────────────────────────────────────────────
   const alternativasActivas = ud.alternativasActivas || {}
+
+  function getZonaEjercicio(ej) {
+    // Buscar en fitcron por slug o nombre exacto
+    const match = fitcronEjercicios.find(e => e.slug === ej.id || e.nombre === ej.nombre)
+    return match?.zona || null
+  }
+
   function getFitcronAlts(ej, n = 8) {
     const grupo = matchMusculo(ej.musculo)
     if (!grupo) return []
-    return fitcronEjercicios
-      .filter(e => e.musculo === grupo && e.gif && e.slug !== ej.id)
-      .sort(() => 0.5 - Math.random())
-      .slice(0, n)
+    const zona = getZonaEjercicio(ej)
+    const pool = fitcronEjercicios.filter(e => e.musculo === grupo && e.gif && e.slug !== ej.id)
+    // Prioriza misma zona; si hay suficientes, devuelve solo esos; si no, completa con el resto
+    const mismaZona = zona ? pool.filter(e => e.zona === zona).sort(() => 0.5 - Math.random()) : []
+    const otraZona  = pool.filter(e => e.zona !== zona).sort(() => 0.5 - Math.random())
+    return [...mismaZona, ...otraZona].slice(0, n)
   }
   function seleccionarAlternativa(ejId, alt) {
     const nuevas = { ...alternativasActivas, [ejId]: alt }
@@ -610,7 +624,12 @@ export default function App() {
       updateUser({ cicloActual: 'deload', cicloSemanaInicio: getWeekKey() })
     } else if (alerta.tipo === 'plateau' && alerta.ejId) {
       const grupo = matchMusculo(alerta.ejMusculo || '')
-      const candidatos = fitcronEjercicios.filter(e => e.musculo === grupo && e.gif)
+      const pool = fitcronEjercicios.filter(e => e.musculo === grupo && e.gif)
+      const ejActual = fitcronEjercicios.find(e => e.slug === alerta.ejId)
+      const zona = ejActual?.zona || null
+      const candidatos = zona
+        ? (pool.filter(e => e.zona === zona).length > 0 ? pool.filter(e => e.zona === zona) : pool)
+        : pool
       if (candidatos.length > 0) {
         const alt = candidatos[Math.floor(Math.random() * candidatos.length)]
         setUd({ ...ud, alternativasActivas: { ...alternativasActivas, [alerta.ejId]: alt } })
