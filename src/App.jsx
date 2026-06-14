@@ -288,6 +288,7 @@ export default function App() {
   // null = cargando, false = no hay sesión, objeto = sesión activa
   const [authSession, setAuthSession] = useState(null)
   const [showOnboarding, setShowOnboarding] = useState(false)
+  const [onboardingPrevVersion, setOnboardingPrevVersion] = useState(0)
   const [restTimer, setRestTimer] = useState(null) // { segundos, total, ejNombre }
   const saveTimer = useRef(null)
   const dietaTimer = useRef(null)
@@ -709,7 +710,15 @@ export default function App() {
           await upsertProfile(vinculado)
         }
         setUserId(u.id); setTab('entreno')
-        if (!localStorage.getItem(`onboarding_v${ONBOARDING_VERSION}_${u.id}`)) setShowOnboarding(true)
+        if (!localStorage.getItem(`onboarding_v${ONBOARDING_VERSION}_${u.id}`)) {
+          // Buscar la versión más alta que ya vio este usuario
+          let prevVer = 0
+          for (let v = ONBOARDING_VERSION - 1; v >= 1; v--) {
+            if (localStorage.getItem(`onboarding_v${v}_${u.id}`)) { prevVer = v; break }
+          }
+          setOnboardingPrevVersion(prevVer)
+          setShowOnboarding(true)
+        }
       }}
       onCreate={async u => {
         // Solo vincular al auth user si no hay ya un perfil vinculado — evita que perfiles de prueba roben el auto-login
@@ -718,6 +727,7 @@ export default function App() {
         setUsers(prev => [...prev, conAuth])
         await upsertProfile(conAuth)
         setUserId(conAuth.id); setTab('entreno')
+        setOnboardingPrevVersion(0) // usuario nuevo → tutorial completo
         setShowOnboarding(true)
       }}
       onDelete={async id => {
@@ -1895,7 +1905,7 @@ export default function App() {
 
       {/* ONBOARDING */}
       {showOnboarding && (
-        <Onboarding onFinish={() => {
+        <Onboarding previousVersion={onboardingPrevVersion} onFinish={() => {
           localStorage.setItem(`onboarding_v${ONBOARDING_VERSION}_${userId}`, '1')
           setShowOnboarding(false)
         }} />
