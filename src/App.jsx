@@ -6,6 +6,7 @@ import { OBJETIVOS, NIVELES, generarRecomendaciones, calcularNutricionObjetivo, 
 import { supabase, getSession, onAuthStateChange, signOut } from './supabase.js'
 import { getQuoteOfDay } from './quotes.js'
 import { pushSupported, subscribePush, unsubscribePush, getSubscription } from './pushService.js'
+import { useSubscription } from './useSubscription.js'
 import AuthScreen from './AuthScreen.jsx'
 import Onboarding, { ONBOARDING_VERSION } from './Onboarding.jsx'
 
@@ -121,7 +122,7 @@ function EjercicioInput({ ej, serie, valor, onChange, ultimoValor }) {
 
 // ─── PANTALLA USUARIOS ───────────────────────────────────────────────────────
 
-function PantallaUsuarios({ users, loading, onSelect, onCreate, onDelete, onSignOut }) {
+function PantallaUsuarios({ users, loading, onSelect, onCreate, onDelete, onSignOut, maxProfiles = 1, plan = 'free', onUpgrade }) {
   const [creando, setCreando] = useState(false)
   const [nombre, setNombre] = useState('')
   const [avatar, setAvatar] = useState('💪')
@@ -130,6 +131,8 @@ function PantallaUsuarios({ users, loading, onSelect, onCreate, onDelete, onSign
   const [borrandoId, setBorrandoId] = useState(null)
   const [codigoBorrar, setCodigoBorrar] = useState('')
   const [errorCodigo, setErrorCodigo] = useState(false)
+  const [showPaywall, setShowPaywall] = useState(false)
+  const limitAlcanzado = users.length >= maxProfiles
 
   function guardar() {
     if (!nombre.trim()) return
@@ -209,9 +212,23 @@ function PantallaUsuarios({ users, loading, onSelect, onCreate, onDelete, onSign
             )
           })()}
 
+          {/* Banner plan actual */}
+          {plan === 'free' && users.length > 0 && (
+            <div style={{ background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: 14, padding: '10px 14px', marginBottom: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#6366f1' }}>Plan Gratuito · 1 perfil</div>
+                <div style={{ fontSize: 11, color: '#8e8e93' }}>Hasta 5 perfiles con Plan Familia</div>
+              </div>
+              <button onClick={() => setShowPaywall(true)} style={{ padding: '7px 14px', borderRadius: 10, background: '#6366f1', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: 12 }}>
+                Mejorar →
+              </button>
+            </div>
+          )}
+
           {!creando ? (
-            <button onClick={() => setCreando(true)} style={{ width: '100%', padding: '16px', borderRadius: 16, border: '2px dashed #d1d5db', background: 'transparent', color: '#6366f1', fontWeight: 700, fontSize: 15, cursor: 'pointer' }}>
-              + Añadir usuario
+            <button onClick={() => limitAlcanzado ? setShowPaywall(true) : setCreando(true)}
+              style={{ width: '100%', padding: '16px', borderRadius: 16, border: `2px dashed ${limitAlcanzado ? '#d1d5db' : '#6366f1'}`, background: 'transparent', color: limitAlcanzado ? '#aeaeb2' : '#6366f1', fontWeight: 700, fontSize: 15, cursor: 'pointer' }}>
+              {limitAlcanzado ? '🔒 Añadir usuario (Plan Familia)' : '+ Añadir usuario'}
             </button>
           ) : (
             <div style={{ background: '#fff', borderRadius: 16, padding: 20 }}>
@@ -255,6 +272,47 @@ function PantallaUsuarios({ users, loading, onSelect, onCreate, onDelete, onSign
           )}
         </>
       )}
+
+      {/* Modal paywall */}
+      {showPaywall && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+          onClick={() => setShowPaywall(false)}>
+          <div style={{ background: '#fff', borderRadius: 24, padding: '32px 24px 28px', width: '100%', maxWidth: 380, textAlign: 'center' }}
+            onClick={e => e.stopPropagation()}>
+            <div style={{ fontSize: 48, marginBottom: 12 }}>👨‍👩‍👧‍👦</div>
+            <div style={{ fontSize: 21, fontWeight: 800, color: '#1c1c1e', marginBottom: 6 }}>Plan Familia</div>
+            <div style={{ fontSize: 14, color: '#8e8e93', marginBottom: 24, lineHeight: 1.5 }}>Añade hasta 5 perfiles para que toda la familia entrene con su rutina personalizada.</div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
+              {[
+                ['👤', 'Hasta 5 perfiles independientes'],
+                ['🎯', 'Rutinas personalizadas por objetivo y nivel'],
+                ['📊', 'Seguimiento individual de progreso'],
+                ['🔔', 'Recordatorios para cada miembro'],
+              ].map(([icon, text]) => (
+                <div key={text} style={{ display: 'flex', alignItems: 'center', gap: 12, background: '#f5f5f7', borderRadius: 12, padding: '10px 14px', textAlign: 'left' }}>
+                  <span style={{ fontSize: 20 }}>{icon}</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: '#1c1c1e' }}>{text}</span>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ background: '#eef2ff', borderRadius: 14, padding: '14px 16px', marginBottom: 20 }}>
+              <div style={{ fontSize: 28, fontWeight: 800, color: '#6366f1' }}>4,99€<span style={{ fontSize: 14, fontWeight: 500, color: '#8e8e93' }}> /mes</span></div>
+              <div style={{ fontSize: 12, color: '#8e8e93', marginTop: 2 }}>Cancela cuando quieras</div>
+            </div>
+
+            <button onClick={() => { setShowPaywall(false); onUpgrade?.() }}
+              style={{ width: '100%', padding: '14px', borderRadius: 14, background: '#6366f1', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: 16, boxShadow: '0 4px 14px #6366f155', marginBottom: 10 }}>
+              Contratar Plan Familia →
+            </button>
+            <button onClick={() => setShowPaywall(false)}
+              style={{ background: 'none', border: 'none', color: '#aeaeb2', fontSize: 13, cursor: 'pointer' }}>
+              Ahora no
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -295,6 +353,7 @@ export default function App() {
   // null = cargando, false = no hay sesión, objeto = sesión activa
   const [authSession, setAuthSession] = useState(null)
   const [showOnboarding, setShowOnboarding] = useState(false)
+  const { plan, maxProfiles, startCheckout } = useSubscription(authSession?.user?.id)
   const [onboardingPrevVersion, setOnboardingPrevVersion] = useState(0)
   const [restTimer, setRestTimer] = useState(null) // { segundos, total, ejNombre }
   const saveTimer = useRef(null)
@@ -725,6 +784,8 @@ export default function App() {
   if (!userId) return (
     <PantallaUsuarios
       users={users} loading={usersLoading}
+      maxProfiles={maxProfiles} plan={plan}
+      onUpgrade={() => startCheckout(authSession?.user?.email)}
       onSelect={async u => {
         // Si el perfil no está vinculado a este auth user, vincularlo ahora
         if (authSession?.user && !u.authUserId) {
