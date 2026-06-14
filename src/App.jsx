@@ -300,10 +300,11 @@ export default function App() {
   // Cargar perfiles al inicio y auto-seleccionar si hay sesión vinculada
   useEffect(() => {
     if (authSession === null) return // aún cargando auth
-    getProfiles().then(p => {
+    const authUserId = authSession?.user?.id || null
+    getProfiles(authUserId).then(p => {
       setUsers(p)
       setUsersLoading(false)
-      if (authSession && authSession.user) {
+      if (authSession?.user) {
         const vinculado = p.find(u => u.authUserId === authSession.user.id)
         if (vinculado) setUserId(vinculado.id)
       }
@@ -675,7 +676,7 @@ export default function App() {
 
   const TABS = [
     { id: 'entreno', icon: '🏋️', label: 'Entreno' },
-    { id: 'peso', icon: '⚖️', label: 'Peso' },
+    { id: 'datos', icon: '📊', label: 'Datos' },
     { id: 'dieta', icon: '🥗', label: 'Dieta' },
     { id: 'progreso', icon: '📈', label: 'Progreso' },
   ]
@@ -687,11 +688,11 @@ export default function App() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
             <div style={{ fontSize: 22, fontWeight: 800, color: '#1c1c1e', letterSpacing: -0.5 }}>
-              {tab === 'entreno' ? '🏋️ Entreno' : tab === 'peso' ? '⚖️ Mi peso' : tab === 'dieta' ? '🥗 Nutrición' : '📈 Progreso'}
+              {tab === 'entreno' ? '🏋️ Entreno' : tab === 'datos' ? '📊 Mis datos' : tab === 'dieta' ? '🥗 Nutrición' : '📈 Progreso'}
             </div>
             <div style={{ fontSize: 13, color: '#8e8e93', marginTop: 3 }}>
               {tab === 'entreno' ? 'Rutina 5 días · Bajar grasa y ganar músculo' :
-               tab === 'peso' ? 'Control de peso corporal' :
+               tab === 'datos' ? 'Perfil físico y seguimiento de peso' :
                tab === 'dieta' ? 'Plan personalizado de alimentación' : 'Historial y evolución semanal'}
             </div>
           </div>
@@ -1026,8 +1027,43 @@ export default function App() {
         )}
 
         {/* ══════════ PESO ══════════ */}
-        {tab === 'peso' && (
+        {tab === 'datos' && (
           <>
+            {/* ── Datos físicos ── */}
+            <div style={{ ...S.card, padding: 16, marginBottom: 10 }}>
+              <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 14 }}>Datos físicos</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
+                {[['Altura (cm)', 'altura', '175'], ['Edad (años)', 'edad', '30'], ['Peso objetivo (kg)', 'pesoObj', '75']].map(([l, k, ph]) => (
+                  <div key={k}><div style={S.label}>{l}</div>
+                    <input type="number" inputMode="decimal" placeholder={ph} value={dUser[k] || ''} onChange={e => setDietaUser({ ...dUser, [k]: e.target.value })} style={S.input} /></div>
+                ))}
+                <div><div style={S.label}>Peso actual (kg)</div>
+                  <input type="number" inputMode="decimal" placeholder="80" value={dUser.pesoActual || ''} onChange={e => setDietaUser({ ...dUser, pesoActual: e.target.value })} style={S.input} />
+                </div>
+              </div>
+              <div style={S.label}>Sexo biológico</div>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+                {[['hombre', '♂ Hombre'], ['mujer', '♀ Mujer']].map(([v, l]) => (
+                  <button key={v} style={{ ...S.btnPill(dUser.sexo === v, '#6366f1'), flex: 1 }} onClick={() => setDietaUser({ ...dUser, sexo: v })}>{l}</button>
+                ))}
+              </div>
+              <div style={S.label}>Objetivo</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+                {OBJETIVOS.map(o => (
+                  <button key={o.id} style={{ ...S.btnPill(user?.objetivo === o.id, '#6366f1'), flex: '1 1 auto' }}
+                    onClick={() => updateUser({ objetivo: o.id })}>{o.icon} {o.nombre}</button>
+                ))}
+              </div>
+              <div style={S.label}>Nivel</div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {NIVELES.map(n => (
+                  <button key={n.id} style={{ ...S.btnPill(user?.nivel === n.id, '#6366f1'), flex: 1 }}
+                    onClick={() => updateUser({ nivel: n.id })}>{n.icon} {n.nombre}</button>
+                ))}
+              </div>
+            </div>
+
+            {/* ── Log de peso ── */}
             <div style={{ ...S.card, padding: 16 }}>
               <div style={S.label}>Peso de hoy</div>
               <div style={{ display: 'flex', gap: 10 }}>
@@ -1112,27 +1148,38 @@ export default function App() {
               )
             })()}
 
-            <div style={{ ...S.card, padding: 16, marginBottom: 10 }}>
-              <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 14 }}>Tus datos físicos</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
-                {[['Altura (cm)', 'altura', '175'], ['Edad (años)', 'edad', '30'], ['Peso actual (kg)', 'pesoActual', '80'], ['Peso objetivo (kg)', 'pesoObj', '75']].map(([l, k, ph]) => (
-                  <div key={k}><div style={S.label}>{l}</div>
-                    <input type="number" inputMode="decimal" placeholder={ph} value={dUser[k] || ''} onChange={e => setDietaUser({ ...dUser, [k]: e.target.value })} style={S.input} /></div>
-                ))}
+            {/* Banner de datos — si faltan datos redirige a Datos */}
+            {(!dUser.altura || !dUser.edad || !dUser.pesoActual) ? (
+              <div style={{ ...S.card, padding: 16, marginBottom: 10, background: '#fff7ed', border: '1px solid #fed7aa', textAlign: 'center' }}>
+                <div style={{ fontSize: 32, marginBottom: 8 }}>📊</div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: '#9a3412', marginBottom: 6 }}>Completa tus datos físicos</div>
+                <div style={{ fontSize: 12, color: '#c2410c', marginBottom: 12 }}>Para calcular tu plan de nutrición necesitas altura, edad y peso.</div>
+                <button style={{ ...S.btnPrimary('#f97316'), borderRadius: 12 }} onClick={() => setTab('datos')}>
+                  Ir a Datos →
+                </button>
               </div>
-              <div style={S.label}>Sexo biológico</div>
-              <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-                {[['hombre', '♂ Hombre'], ['mujer', '♀ Mujer']].map(([v, l]) => (
-                  <button key={v} style={{ ...S.btnPill(dUser.sexo === v, '#6366f1'), flex: 1 }} onClick={() => setDietaUser({ ...dUser, sexo: v })}>{l}</button>
-                ))}
-              </div>
-              {user && (
-                <div style={{ fontSize: 12, color: '#8e8e93', marginBottom: 12, padding: '8px 12px', background: '#f9f9fb', borderRadius: 10 }}>
-                  El objetivo y nivel se toman de tu perfil de entrenamiento: <b>{(OBJETIVOS.find(o => o.id === (user.objetivo || 'recomposicion')) || OBJETIVOS[0]).nombre}</b> · <b>{(NIVELES.find(n => n.id === (user.nivel || 'intermedio')) || NIVELES[0]).nombre}</b>.
+            ) : (
+              <div style={{ ...S.card, padding: 16, marginBottom: 10 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#1c1c1e' }}>Tu plan nutricional</div>
+                  <button style={{ fontSize: 11, color: '#6366f1', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }} onClick={() => setTab('datos')}>Editar datos →</button>
                 </div>
-              )}
-              <button style={S.btnPrimary('#6366f1')} onClick={calcDieta}>Calcular mi plan</button>
-            </div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+                  {[
+                    [dUser.pesoActual + ' kg', 'Peso'],
+                    [dUser.altura + ' cm', 'Altura'],
+                    [dUser.edad + ' años', 'Edad'],
+                    [dUser.sexo === 'mujer' ? '♀ Mujer' : '♂ Hombre', 'Sexo'],
+                  ].map(([val, lbl]) => (
+                    <div key={lbl} style={{ background: '#f5f5f7', borderRadius: 10, padding: '6px 10px', textAlign: 'center', minWidth: 70 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: '#6366f1' }}>{val}</div>
+                      <div style={{ fontSize: 10, color: '#8e8e93' }}>{lbl}</div>
+                    </div>
+                  ))}
+                </div>
+                <button style={S.btnPrimary('#6366f1')} onClick={calcDieta}>Calcular mi plan</button>
+              </div>
+            )}
 
             {dietaCalc && (() => {
               const objetivo = dietaCalc.objetivo || user?.objetivo || 'recomposicion'

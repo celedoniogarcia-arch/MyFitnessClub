@@ -28,8 +28,27 @@ function profileToRow(profile) {
   }
 }
 
-export async function getProfiles() {
-  if (!supabase) return JSON.parse(localStorage.getItem('rg_users') || '[]')
+export async function getProfiles(authUserId) {
+  if (!supabase) {
+    const all = JSON.parse(localStorage.getItem('rg_users') || '[]')
+    if (!authUserId) return all
+    const own = all.filter(u => u.authUserId === authUserId)
+    return own.length > 0 ? own : all.filter(u => !u.authUserId)
+  }
+  if (authUserId) {
+    // Primero perfiles vinculados a este usuario
+    const { data: own } = await supabase.from('rg_profiles').select('*').eq('auth_user_id', authUserId).order('created_at')
+    if (own && own.length > 0) {
+      const profiles = own.map(rowToProfile)
+      localStorage.setItem('rg_users', JSON.stringify(profiles))
+      return profiles
+    }
+    // Migración: si no hay vinculados, mostrar los sin vincular para que pueda reclamarlos
+    const { data: unlinked } = await supabase.from('rg_profiles').select('*').is('auth_user_id', null).order('created_at')
+    const profiles = (unlinked || []).map(rowToProfile)
+    localStorage.setItem('rg_users', JSON.stringify(profiles))
+    return profiles
+  }
   const { data, error } = await supabase.from('rg_profiles').select('*').order('created_at')
   if (error) return JSON.parse(localStorage.getItem('rg_users') || '[]')
   const profiles = data.map(rowToProfile)
